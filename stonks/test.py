@@ -15,28 +15,20 @@ if sys.version_info[0] != 3 or sys.version_info[1] < 6:
 # import pandas
 # import statistics
 
-import alpaca
 import datetime
+import simulation
 import strategy as st
-
-def run(api, strategy, timestamps):
-  for timestamp in timestamps:
-    pass
-    # datas = api.getDatas(timestamp)
-    # strategy._setDatas(datas, timestamp)
-    # strategy.nextMinute()
 
 ## Main function
 def main():
-  api = alpaca.Alpaca()
-  fromDate = datetime.date(2020, 6, 1)
-  toDate = datetime.date(2020, 6, 30)
+  toDate = datetime.date.today().replace(day=1) - datetime.timedelta(days=1)
+  fromDate = toDate.replace(year=(toDate.year - 1))
+  sim = simulation.Simulation(fromDate, toDate)
 
-  symbol = api.loadSymbol("AMD", fromDate, toDate=toDate)
-  timestamps = api.getTimestamps(fromDate, toDate=toDate)
-  symbol.setCurrentIndex(timestamps[-1])
-  print(symbol.minute[0])
-  print(symbol.day[0])
+  sim.setup(st.strategy, initialCapital=25000)
+  # sim.run()
+  # print(sim.report())
+  # sim.plot()
 
   # run(api, st.strategy, timestamps)
 

@@ -9,11 +9,12 @@ import alpaca_trade_api
 import calendar
 import datetime
 import feather
+import numpy as np
 import os
 import pandas as pd
 import pytz
 
-est = pytz.timezone("US/Eastern")
+est = pytz.timezone("America/New_York")
 
 class Candles:
   ## Initialize candles object, accessor of candle data
@@ -43,8 +44,8 @@ class Candles:
       raise ValueError("(self.currentIndex + key) index must be >= 0")
     return self.dataFrame.iloc[index]
 
-class Data:
-  ## Initialize data object collection of minute and daily candle data
+class Security:
+  ## Initialize Security object collection of minute and daily candle data
   #  @param symbol name of stored symbol
   #  @param minuteData pandas.DataFrame of minute candle data
   #  @param dayData pandas.DataFrame of daily candle data
@@ -55,9 +56,9 @@ class Data:
 
   ## Set the current index of the dataFrame
   #  @param timestamp of the current index
-  def setCurrentIndex(self, timestamp):
+  def _setCurrentIndex(self, timestamp):
     self.minute._setCurrentIndex(timestamp)
-    self.day._setCurrentIndex(timestamp.date())
+    self.day._setCurrentIndex(timestamp.replace(hour=0, minute=0))
 
 class Alpaca:
   WATCHLIST_NAME = "stonks list"
@@ -133,7 +134,7 @@ class Alpaca:
   #  @param symbol to fetch data for
   #  @param date in the given month
   #  @return pandas.DataFrame of timestamp index open, high, low, close, volume data
-  def _loadMinuteBarsMonth(self, symbol, date):
+  def _loadMinuteBars(self, symbol, date):
     # print("Loading {} monthly candles for {}".format(symbol, date))
     start = date.replace(day=1)
     end = datetime.date(start.year, start.month,
@@ -145,19 +146,27 @@ class Alpaca:
     if os.path.exists(filename):
       candles = pd.read_feather(filename)
       candles.set_index('timestamp', inplace=True)
+      candles.index = candles.index.tz_convert(est)
       start = candles.index[-1].to_pydatetime()
 
-    while True:
-      response = self.api.polygon.historic_agg_v2(
-          symbol, 1, "minute", start.isoformat(), end.isoformat()).df
-      candles.update(response)
-      candles = pd.concat([candles, response])
-      candles = candles[~candles.index.duplicated()]
+    today = datetime.date.today()
+    if candles.empty or (
+      date.year == today.year and date.month == today.month):
+      # Data is for current month, update from online
+      while True:
+        response = self.api.polygon.historic_agg_v2(
+            symbol, 1, "minute", start.isoformat(), end.isoformat()).df
+        if response.empty:
+          return candles
+        response.index = response.index.tz_convert(est)
+        candles.update(response)
+        candles = pd.concat([candles, response])
+        candles = candles[~candles.index.duplicated()]
 
-      previousStart = start
-      start = candles.index[-1].to_pydatetime()
-      if previousStart == start:
-        break
+        previousStart = start
+        start = candles.index[-1].to_pydatetime()
+        if previousStart == start:
+          break
 
     if not os.path.exists("datacache"):
       os.mkdir("datacache")
@@ -169,7 +178,7 @@ class Alpaca:
   #  @param symbol to fetch data for
   #  @param date in the given year
   #  @return pandas.DataFrame of timestamp index open, high, low, close, volume data
-  def _loadDayBarsYear(self, symbol, date):
+  def _loadDayBars(self, symbol, date):
     # print("Loading {} yearly candles for {}".format(symbol, date))
     start = date.replace(month=1, day=1)
     end = datetime.date(start.year + 1, 1, 1)
@@ -179,11 +188,21 @@ class Alpaca:
     if os.path.exists(filename):
       candles = pd.read_feather(filename)
       candles.set_index('timestamp', inplace=True)
+      candles.index = candles.index.tz_convert(est)
       start = candles.index[-1].to_pydatetime()
 
+    today = datetime.date.today()
+    if not candles.empty and date.year != today.year:
+      # Data is for a previous year, no need to compare to online
+      return candles
+
     while True:
-      response = self.api.polygon.historic_agg_v2(
-          symbol, 1, "day", start.isoformat(), end.isoformat()).df
+      try:
+        response = self.api.polygon.historic_agg_v2(
+            symbol, 1, "day", start.isoformat(), end.isoformat()).df
+      except TypeError:
+        return candles
+      response.index = response.index.tz_convert(est)
       candles.update(response)
       candles = pd.concat([candles, response])
       candles = candles[~candles.index.duplicated()]
@@ -201,18 +220,19 @@ class Alpaca:
 
   ## Load the OHLCV data of a symbol between specified dates, inclusive range
   #  @param symbol to fetch data for
-  #  @param fromDate datetime.date start date (inclusive)
-  #  @param toDate datetime.date end date (inclusive)
+  #  @param (list of datetime objects, list of date objects)
   #  @return Data
-  def loadSymbol(self, symbol, fromDate, toDate=datetime.date.today()):
-    print("Loading", symbol, end="", flush=True)
+  def loadSymbol(self, symbol, timestamps):
+    print("Loading {:>5}".format(symbol), end="", flush=True)
+    fromDate = timestamps[1][0].date()
+    toDate = timestamps[1][-1].date()
 
     # Get the monthly minute bar data for the contained months
     start = fromDate.replace(day=1)
     candlesMinutes = pd.DataFrame()
     while start <= toDate:
       candlesMinutes = pd.concat(
-        [candlesMinutes, self._loadMinuteBarsMonth(symbol, start)])
+        [candlesMinutes, self._loadMinuteBars(symbol, start)])
       start = datetime.date(
         start.year + (start.month // 12), start.month % 12 + 1, 1)
       print(".", end="", flush=True)
@@ -231,26 +251,107 @@ class Alpaca:
     candlesDays = pd.DataFrame()
     while start <= toDate:
       candlesDays = pd.concat(
-        [candlesDays, self._loadDayBarsYear(symbol, start)])
+        [candlesDays, self._loadDayBars(symbol, start)])
       start = datetime.date(start.year + 1, 1, 1)
       print(".", end="", flush=True)
     candlesDays = candlesDays[candlesDays.index >= fromDatetime]
     candlesDays = candlesDays[candlesDays.index <= toDatetime]
 
+    # Fill in missing minute data
+    missingTimestamps = [
+        timestamp for timestamp in timestamps[0] if timestamp not in candlesMinutes.index]
+    if len(missingTimestamps) > 0:
+      print("filling minute holes...", end="", flush=True)
+      requiredCandles = pd.DataFrame(np.nan, index=pd.to_datetime(missingTimestamps), columns=[
+          "open", "high", "low", "close", "volume"])
+      requiredCandles.index.name = "timestamp"
+      firstOpen = candlesMinutes.iat[0, 0]
+
+      for index, row in requiredCandles.iterrows():
+        prevRows = candlesMinutes[candlesMinutes.index < index]
+        if prevRows.empty:
+          value = firstOpen
+        else:
+          value = prevRows.iloc[-1]["close"]
+        row["open"] = value
+        row["high"] = value
+        row["low"] = value
+        row["close"] = value
+        row["volume"] = 0
+      requiredCandles.index = requiredCandles.index.tz_convert(est)
+      candlesMinutes.index = candlesMinutes.index.tz_convert(est)
+      candlesMinutes = candlesMinutes.append(requiredCandles)
+      candlesMinutes = candlesMinutes.sort_index()
+
+      # Save updated data
+      start = timestamps[0][0].replace(day=1, hour=0, minute=0)
+      while start <= timestamps[0][-1]:
+        end = est.localize(datetime.datetime(start.year, start.month, calendar.monthrange(
+          start.year, start.month)[-1], 23, 59, 59))
+
+        filename = "datacache/{}.{}.{}.feather".format(
+          symbol, start.year, start.month)
+        candles = candlesMinutes[candlesMinutes.index >= start]
+        candles = candles[candles.index <= end]
+        candles.reset_index().to_feather(filename)
+
+        start = start.replace(
+          year=(start.year + (start.month // 12)), month=(start.month % 12 + 1))
+
+    # Fill in missing daily data
+    missingTimestamps = [
+        timestamp for timestamp in timestamps[1] if timestamp not in candlesDays.index]
+    if len(missingTimestamps) > 0:
+      print("filling day holes...", end="", flush=True)
+      requiredCandles = pd.DataFrame(np.nan, index=pd.to_datetime(missingTimestamps), columns=[
+          "open", "high", "low", "close", "volume"])
+      requiredCandles.index.name = "timestamp"
+      firstOpen = candlesDays.iat[0, 0]
+
+      for index, row in requiredCandles.iterrows():
+        prevRows = candlesDays[candlesDays.index < index]
+        if prevRows.empty:
+          value = firstOpen
+        else:
+          value = prevRows.iloc[-1]["close"]
+        row["open"] = value
+        row["high"] = value
+        row["low"] = value
+        row["close"] = value
+        row["volume"] = 0
+      candlesDays = candlesDays.append(requiredCandles)
+      candlesDays = candlesDays.sort_index()
+
+      # Save updated data
+      start = timestamps[1][0].replace(month=1, day=1, hour=0, minute=0)
+      while start <= timestamps[1][-1]:
+        end = est.localize(datetime.datetime(start.year + 1, 1, 1))
+
+        filename = "datacache/{}.{}.feather".format(symbol, start.year)
+        candles = candlesDays[candlesDays.index >= start]
+        candles = candles[candles.index < end]
+        candles.reset_index().to_feather(filename)
+
+        start = start.replace(year=(start.year + 1))
+
     print("complete", flush=True)
 
-    return Data(symbol, candlesMinutes, candlesDays)
+    return Security(symbol, candlesMinutes, candlesDays)
 
   ## Get timestamps of trading days between fromdate and to date every minute
   #  @param fromDate datetime.date start date (inclusive)
   #  @param toDate datetime.date end date (inclusive)
-  #  @return list of datetime objects
+  #  @return (list of datetime objects (minutes), list of datetime objects (days))
   def getTimestamps(self, fromDate, toDate=datetime.date.today()):
-    latestTimestamp = pytz.utc.localize(datetime.datetime.utcnow()) - datetime.timedelta(minutes=1)
+    latestTimestamp = pytz.utc.localize(
+      datetime.datetime.utcnow()) - datetime.timedelta(minutes=1)
     toDate = min(toDate, datetime.date.today())
     timestamps = []
     calendar = self.api.get_calendar(start=fromDate, end=toDate)
+    dates = []
     for day in calendar:
+      dates.append(est.localize(
+          datetime.datetime.combine(day.date, datetime.time(0, 0, 0))))
       start = est.localize(datetime.datetime.combine(day.date, day.open))
       end = est.localize(datetime.datetime.combine(day.date, day.close))
       day = start
@@ -258,4 +359,4 @@ class Alpaca:
         timestamps.append(day)
         day = day + datetime.timedelta(minutes=1)
 
-    return timestamps
+    return (timestamps, dates)
