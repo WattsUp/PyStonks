@@ -29,7 +29,7 @@ def run(api, strategy, timestamps):
 ## Main function
 def main():
   api = alpaca.Alpaca()
-  fromDate = datetime.date(2019, 6, 1)
+  fromDate = datetime.date(2020, 6, 1)
   toDate = datetime.date(2020, 6, 30)
 
   symbol = api.loadSymbol("AMD", fromDate, toDate=toDate)

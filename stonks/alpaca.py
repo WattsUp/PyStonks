@@ -21,7 +21,7 @@ class Candles:
   #  @param minute True if dataFrame is minute data, False if dataFrame is daily data
   def __init__(self, dataFrame, minute=True):
     self.dataFrame = dataFrame
-    self.minute = True
+    self.minute = minute
     self.currentIndex = 0
     self._setCurrentIndex(dataFrame.index[0])
 
@@ -35,12 +35,12 @@ class Candles:
   def __getitem__(self, key):
     if key > 0:
       raise ValueError("Key index must be <= 0")
-    # CurrentIndex is the current timeslice
-    # Subtract one as candle data for the current timeslice is unknown until
-    # the timeslice has elapsed
-    index = self.currentIndex + key - 1
+    index = self.currentIndex + key
+    if not self.minute:
+      # The zero index is yesterday as today is not finished yet
+      index = index - 1
     if index < 0:
-      raise ValueError("(self.currentIndex + key - 1) index must be >= 0")
+      raise ValueError("(self.currentIndex + key) index must be >= 0")
     return self.dataFrame.iloc[index]
 
 class Data:
@@ -246,6 +246,7 @@ class Alpaca:
   #  @param toDate datetime.date end date (inclusive)
   #  @return list of datetime objects
   def getTimestamps(self, fromDate, toDate=datetime.date.today()):
+    latestTimestamp = pytz.utc.localize(datetime.datetime.utcnow()) - datetime.timedelta(minutes=1)
     toDate = min(toDate, datetime.date.today())
     timestamps = []
     calendar = self.api.get_calendar(start=fromDate, end=toDate)
@@ -253,7 +254,7 @@ class Alpaca:
       start = est.localize(datetime.datetime.combine(day.date, day.open))
       end = est.localize(datetime.datetime.combine(day.date, day.close))
       day = start
-      while day < end:
+      while day < end and day < latestTimestamp:
         timestamps.append(day)
         day = day + datetime.timedelta(minutes=1)
 
