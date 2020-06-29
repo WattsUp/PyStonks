@@ -6,7 +6,6 @@ if sys.version_info[0] != 3 or sys.version_info[1] < 6:
   sys.exit(1)
 
 # import live
-import test
 
 if __name__ == "__main__":
   if len(sys.argv) < 2:
@@ -16,7 +15,12 @@ if __name__ == "__main__":
 
   if mode == "test":
     print("Testing")
+    import test
     test.main()
+  elif mode == "add":
+    import alpaca
+    api = alpaca.Alpaca()
+    api.addSymbols(sys.argv[2:])
   # elif mode == "live":
   #   print("Live Trading")
   #   live.main()
