@@ -67,7 +67,6 @@ class Simulation:
         pass
 
       if timestamp.minute == 59 and timestamp in self.timestamps[2]:
-        print("Close", timestamp.date())
         value = self.strategy.portfolio.value()
         if len(self.closingValue) > 0:
           self.dailyReturn.append((value / self.closingValue[-1] - 1) * 100)
@@ -81,9 +80,15 @@ class Simulation:
   #  @return multiline string
   def report(self):
     report = ""
-    sharpe = np.mean(self.dailyReturn) / \
-        np.std(self.dailyReturn) * np.sqrt(252)
+    avgDailyReturn = np.mean(self.dailyReturn)
+    sharpe = avgDailyReturn / np.std(self.dailyReturn) * np.sqrt(252)
     report += "Sharpe ratio: {:.3f}\n".format(sharpe)
+
+    negativeReturns = np.array([a for a in self.dailyReturn if a < 0])
+    downsideVariance = np.sum(negativeReturns**2) / len(self.dailyReturn)
+    sortino = avgDailyReturn / np.sqrt(downsideVariance) * np.sqrt(252)
+    report += "Sortino ratio: {:.3f}\n".format(sortino)
+
     report += "Closing value:  ${:10.2f}\n".format(self.closingValue[-1])
     profit = self.closingValue[-1] - self.initialCapital
     profitPercent = profit / self.initialCapital
