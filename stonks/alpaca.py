@@ -16,6 +16,16 @@ import pytz
 
 est = pytz.timezone("America/New_York")
 
+class OHLCV:
+  ## Initialize a OHLCV object, data storage
+  #  @para list of [open, high, low, close, volume]
+  def __init__(self, list):
+    self.open = list[0]
+    self.high = list[1]
+    self.low = list[2]
+    self.close = list[3]
+    self.volume = list[4]
+
 class Candles:
   ## Initialize candles object, accessor of candle data
   #  @param dataFrame pandas.DataFrame of OHLCV data with timestamp indexing
@@ -29,7 +39,15 @@ class Candles:
   ## Set the current index of the dataFrame
   #  @param timestamp of the current index
   def _setCurrentIndex(self, timestamp):
-    self.currentIndex = self.dataFrame.index.get_loc(timestamp)
+    if self.minute:
+      if timestamp.time() > datetime.time(9, 30):
+        self.currentIndex += 1
+      else:
+        self.currentIndex = self.dataFrame.index.get_loc(timestamp)
+    else:
+      if timestamp.time() == datetime.time(9, 30):
+        self.currentIndex = self.dataFrame.index.get_loc(
+          timestamp.replace(hour=0, minute=0))
 
   ## Index accessor, get historical candle data
   #  @param key integer <= 0, 0 is currentIndex, -1 is previous candle...
@@ -42,7 +60,8 @@ class Candles:
       index = index - 1
     if index < 0:
       raise ValueError("(self.currentIndex + key) index must be >= 0")
-    return self.dataFrame.iloc[index]
+
+    return OHLCV(self.dataFrame.values[index])
 
 class Security:
   ## Initialize Security object collection of minute and daily candle data
@@ -53,12 +72,23 @@ class Security:
     self.symbol = symbol
     self.minute = Candles(minuteData, minute=True)
     self.day = Candles(dayData, minute=False)
+    self.shares = 0
+
+  ## Setup the initial conditions of the simulation
+  #  @param shares to start the security with
+  def setup(self, shares=0):
+    self.shares = shares
 
   ## Set the current index of the dataFrame
   #  @param timestamp of the current index
   def _setCurrentIndex(self, timestamp):
     self.minute._setCurrentIndex(timestamp)
-    self.day._setCurrentIndex(timestamp.replace(hour=0, minute=0))
+    self.day._setCurrentIndex(timestamp)
+
+  ## Get the value of held shares
+  #  @param shares * most recent close price
+  def value(self):
+    return self.shares * self.minute[0].close
 
 class Alpaca:
   WATCHLIST_NAME = "stonks list"

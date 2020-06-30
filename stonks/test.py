@@ -21,14 +21,24 @@ import strategy as st
 
 ## Main function
 def main():
-  toDate = datetime.date.today().replace(day=1) - datetime.timedelta(days=1)
-  fromDate = toDate.replace(year=(toDate.year - 1))
-  sim = simulation.Simulation(fromDate, toDate)
+  # toDate = datetime.date.today().replace(day=1) - datetime.timedelta(days=1)
+  # fromDate = toDate.replace(year=(toDate.year - 1))
+
+  # toDate = datetime.date(2019, 12, 31)
+  # fromDate = datetime.date(2017, 1, 1)
+  # sim = simulation.Simulation(fromDate, toDate)
+
+  # sim.setup(st.strategy, initialCapital=25000)
+  
+  toDate = datetime.date(2019, 12, 31)
+  fromDate = datetime.date(2019, 12, 1)
+  sim = simulation.Simulation(fromDate, toDate, symbol="TSLA")
 
   sim.setup(st.strategy, initialCapital=25000)
-  # sim.run()
-  # print(sim.report())
-  # sim.plot()
+  sim.run()
+  print(sim.report())
+  # sim.plot() TODO plot account value overtime and daily returns
+  # sim.plot(symbol="TSLA") TODO plot security price and quantity of held shares
 
   # run(api, st.strategy, timestamps)
 

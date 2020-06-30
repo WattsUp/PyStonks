@@ -37,15 +37,28 @@ class Simulation:
   #  @param initialCapital to start the simulation with
   def setup(self, strategy, initialCapital=10000):
     self.strategy = strategy
-    self.cash = np.float64(initialCapital)
-    self.strategy._setSecurities(self.securities)
+    self.strategy._setup(self.securities, initialCapital)
+    for security in self.securities.values():
+      security.setup()
 
+  ## Run a simulation, expects setup to be called just before
   def run(self):
+    skipDate = None
+    start = datetime.datetime.now()
     for timestamp in self.timestamps[0]:
-      print("SIM run", timestamp)
-      self.strategy._setCurrentTimestamp(timestamp)
-      # self.strategy.processOrders()
-      # self.strategy.nextMinute()
+      if timestamp.date() == skipDate:
+        continue
+      self.strategy.portfolio._setCurrentTimestamp(timestamp)
+      self.strategy.portfolio._processOrders()
+      try:
+        self.strategy.nextMinute()
+      except ValueError:
+        print("{} ValueError: likely requesting non existant history, reseting to tomorrow".format(timestamp))
+        self.setup(self.strategy, self.strategy.portfolio.initialCapital)
+        skipDate = timestamp.date()
+        pass
+    print("Elapsed test duration: {}".format(datetime.datetime.now() - start))
   
   def report(self):
-    return "Ending value: ${:.2f}".format(self.cash)
+    # TODO collect daily returns to plot and calculate sharpe ratio
+    return "Ending value: ${:.2f}".format(self.strategy.portfolio.value())

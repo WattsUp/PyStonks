@@ -1,83 +1,80 @@
 #!/usr/bin/env python
-## Portfolio of ticket shares and liquid cash
+## Test an algorithm against maximum history
 import sys
 if sys.version_info[0] != 3 or sys.version_info[1] < 6:
   print("This script requires Python version >=3.6")
   sys.exit(1)
 
-import decimal
-import exchange
 import math
+import numpy as np
 
-## Main function
+# TODO create order object
+
 class Portfolio:
+  ## Initialize the portfolio
+  #  @param initialCapital to start the wallet off with
+  def __init__(self, securities, initialCapital):
+    self.timestamp = None
+    self.initialCapital = initialCapital
+    self.securities = securities
+    self.cash = np.float64(initialCapital)
+    self.orders = []
 
-  ## Initialization of portfolio
-  #  @param cash initial investment into the portfolio
-  def __init__(self, cash):
-    self.investment = float(cash)
-    self.cash = decimal.Decimal(cash)
-    self.tickets = {}
+  ## Set the current index of the dataFrame
+  #  @param timestamp of the current index
+  def _setCurrentTimestamp(self, timestamp):
+    self.timestamp = timestamp
+    for security in self.securities.values():
+      security._setCurrentIndex(timestamp)
 
-  ## String representation
-  #  @param self object pointer
-  #  @return value of portfolio: $xxxx.xx
-  def __str__(self):
-    return "${:6.2f}".format(self.value())
+  ## Process orders, execute on the opening price
+  def _processOrders(self):
+    for order in self.orders:
+      security = order["security"]
+      shares = abs(order["shares"])
+      if order["side"] == "sell":
+        shares *= -1
+      price = shares * security.minute[0].open
+      if price < self.cash:
+        self.cash -= price
+        security.shares -= shares
+      # TODO  self.log("CANCEL  {:4} order for {:3} shares of {:5}".format(order["side"], abs(shares), security.symbol))
+      # else:
+      #   self.log("SUCCESS {:4} order for {:3} shares of {:5}".format(order["side"], abs(shares), security.symbol))
+      self.orders.remove(order)
 
-  ## Withdraw an amount of cash from the portfolio
-  #  @param symbol to purchase
-  #  @param quantity of shares to purchase
-  #  @param receipt True will print out a receipt for the transaction
-  #  @return real quantity bought
-  def buy(self, symbol, quantity, receipt=False):
-    quantity = math.floor(quantity)
-    price = exchange.price(symbol, quantity)
-    if price > self.cash:
-      return 0
-    self.cash -= price
-    if symbol not in self.tickets:
-      self.tickets[symbol] = 0
-    self.tickets[symbol] += quantity
-    if receipt:
-      print("Buy  {:2} of {:5} for ${:5.2f}".format(quantity, symbol, price))
-    return quantity
+  ## Sell shares of a security
+  #  @param security object to sell
+  #  @param shares number of shares, None to calculate from value
+  #  @param value value of shares to sell (based on current minute closing price)
+  def sell(self, security, shares=None, value=None):
+    if not shares:
+      shares = math.floor(value / security.minute[0].close)
+    self.orders.append(
+      {"security": security, "shares": shares, "side": "sell"})
 
-  ## Deposit an amount of cash into the portfolio
-  #  @param symbol to purchase
-  #  @param quantity of shares to purchase
-  #  @param receipt True will print out a receipt for the transaction
-  #  @return real quantity sold
-  def sell(self, symbol, quantity, receipt=False):
-    if symbol not in self.tickets:
-      return 0
-    quantity = math.floor(min(quantity, self.tickets[symbol]))
-    price = exchange.price(symbol, quantity)
-    self.cash += price
-    self.tickets[symbol] -= quantity
-    if receipt:
-      print("Sell {:2} of {:5} for ${:5.2f}".format(quantity, symbol, price))
-    return quantity
 
-  ## Evaluate the portfolio: cash + shares
-  #  @param time to evaluate price at: current, open, high, low, close
-  #  @return value of portfolio
-  def value(self, time="current"):
+  ## Buy shares of a security
+  #  @param security object to buy
+  #  @param shares number of shares, None to calculate from value
+  #  @param value value of shares to buy (based on current minute closing price)
+  def buy(self, security, shares=None, value=None):
+    if not shares:
+      shares = math.floor(value / security.minute[0].close)
+    self.orders.append({"security": security, "shares": shares, "side": "buy"})
+
+  ## Get the amount of available funds for trading
+  #  @return cash - reservedCash in open orders
+  def availableFunds(self):
     value = self.cash
-    for symbol in self.tickets.keys():
-      value += exchange.price(symbol, self.tickets[symbol], time=time)
-    return float(value)
+    for order in self.orders:
+      value -= order.reservedCash
+    return value
 
-  ## Get the number of shares of the symbol
-  #  @param symbol to inquire
-  #  @return number of shares
-  def shares(self, symbol):
-    if symbol not in self.tickets:
-      return 0
-    return self.tickets[symbol]
-
-  ## Fund the algorithm with more cash
-  #  @param cash amount to fund
-  def fund(self, cash):
-    self.cash += decimal.Decimal(cash)
-    self.investment += float(cash)
+  ## Get the value of the portfolio
+  #  @return cash + held securities valuation
+  def value(self):
+    value = self.cash
+    for security in self.securities.values():
+      value += security.value()
+    return value
