@@ -5,7 +5,6 @@ if sys.version_info[0] != 3 or sys.version_info[1] < 6:
   print("This script requires Python version >=3.6")
   sys.exit(1)
 
-import math
 import numpy as np
 
 class Order:
@@ -37,7 +36,6 @@ class Portfolio:
   #  @param orderCallback function when an order is updated
   def __init__(self, securities, initialCapital, orderCallback):
     self.timestamp = None
-    self.initialCapital = initialCapital
     self.securities = securities
     self.cash = np.float64(initialCapital)
     self.orders = []
@@ -69,7 +67,7 @@ class Portfolio:
   def sell(self, security, shares=None, value=None):
     if not shares:
       shares = value / security.minute[0].close
-    shares = -abs(math.floor(shares))
+    shares = -abs(np.floor(shares))
     if shares == 0:
       return
     self.orders.append(Order(security, shares))
@@ -83,7 +81,7 @@ class Portfolio:
   def buy(self, security, shares=None, value=None):
     if not shares:
       shares = value / security.minute[0].close
-    shares = abs(math.floor(shares))
+    shares = abs(np.floor(shares))
     if shares == 0:
       return
     self.orders.append(Order(security, shares))

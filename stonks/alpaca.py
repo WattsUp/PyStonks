@@ -388,7 +388,7 @@ class Alpaca:
   ## Get timestamps of trading days between fromdate and to date every minute
   #  @param fromDate datetime.date start date (inclusive)
   #  @param toDate datetime.date end date (inclusive)
-  #  @return (list of datetime objects (minutes), list of datetime objects (days))
+  #  @return [open minutes, open days, closing timestamps] all datetime.datetime
   def getTimestamps(self, fromDate, toDate=datetime.date.today()):
     latestTimestamp = pytz.utc.localize(
       datetime.datetime.utcnow()) - datetime.timedelta(minutes=1)
@@ -396,14 +396,16 @@ class Alpaca:
     timestamps = []
     calendar = self.api.get_calendar(start=fromDate, end=toDate)
     dates = []
+    closingTimestamps = []
     for day in calendar:
       dates.append(est.localize(
           datetime.datetime.combine(day.date, datetime.time(0, 0, 0))))
       start = est.localize(datetime.datetime.combine(day.date, day.open))
       end = est.localize(datetime.datetime.combine(day.date, day.close))
+      closingTimestamps.append(end - datetime.timedelta(minutes=1))
       day = start
       while day < end and day < latestTimestamp:
         timestamps.append(day)
         day = day + datetime.timedelta(minutes=1)
 
-    return (timestamps, dates)
+    return [timestamps, dates, closingTimestamps]
