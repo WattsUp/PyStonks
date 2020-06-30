@@ -8,17 +8,40 @@ if sys.version_info[0] != 3 or sys.version_info[1] < 6:
 import math
 import numpy as np
 
-# TODO create order object
+class Order:
+  ## Initialize the order
+  #  @param security to trade
+  #  @param shares to move, positive for buy, negative for sell
+  def __init__(self, security, shares):
+    self.security = security
+    self.shares = shares
+    self.value = abs(security.minute[0].close * shares)
+    self.status = "PLACED"
+    self.profit = None
+
+  ## Complete the order, records the transaction to the security
+  #  @param executed price of the order
+  def complete(self, executedPrice):
+    self.profit = self.security._transaction(self.shares, executedPrice)
+    self.value = abs(executedPrice)
+    self.status = "COMPLETE"
+  
+  ## Cancel the order
+  def cancel(self):
+    self.status = "CANCELED"
 
 class Portfolio:
   ## Initialize the portfolio
+  #  @param dictionary of security objects
   #  @param initialCapital to start the wallet off with
-  def __init__(self, securities, initialCapital):
+  #  @param orderCallback function when an order is updated
+  def __init__(self, securities, initialCapital, orderCallback):
     self.timestamp = None
     self.initialCapital = initialCapital
     self.securities = securities
     self.cash = np.float64(initialCapital)
     self.orders = []
+    self.orderCallback = orderCallback
 
   ## Set the current index of the dataFrame
   #  @param timestamp of the current index
@@ -30,17 +53,13 @@ class Portfolio:
   ## Process orders, execute on the opening price
   def _processOrders(self):
     for order in self.orders:
-      security = order["security"]
-      shares = abs(order["shares"])
-      if order["side"] == "sell":
-        shares *= -1
-      price = shares * security.minute[0].open
+      price = order.shares * order.security.minute[0].open
       if price < self.cash:
         self.cash -= price
-        security.shares -= shares
-      # TODO  self.log("CANCEL  {:4} order for {:3} shares of {:5}".format(order["side"], abs(shares), security.symbol))
-      # else:
-      #   self.log("SUCCESS {:4} order for {:3} shares of {:5}".format(order["side"], abs(shares), security.symbol))
+        order.complete(price)
+      else:
+        order.cancel()
+      self.orderCallback(order)
       self.orders.remove(order)
 
   ## Sell shares of a security
@@ -49,9 +68,12 @@ class Portfolio:
   #  @param value value of shares to sell (based on current minute closing price)
   def sell(self, security, shares=None, value=None):
     if not shares:
-      shares = math.floor(value / security.minute[0].close)
-    self.orders.append(
-      {"security": security, "shares": shares, "side": "sell"})
+      shares = value / security.minute[0].close
+    shares = -abs(math.floor(shares))
+    if shares == 0:
+      return
+    self.orders.append(Order(security, shares))
+    self.orderCallback(self.orders[-1])
 
 
   ## Buy shares of a security
@@ -60,15 +82,19 @@ class Portfolio:
   #  @param value value of shares to buy (based on current minute closing price)
   def buy(self, security, shares=None, value=None):
     if not shares:
-      shares = math.floor(value / security.minute[0].close)
-    self.orders.append({"security": security, "shares": shares, "side": "buy"})
+      shares = value / security.minute[0].close
+    shares = abs(math.floor(shares))
+    if shares == 0:
+      return
+    self.orders.append(Order(security, shares))
+    self.orderCallback(self.orders[-1])
 
   ## Get the amount of available funds for trading
-  #  @return cash - reservedCash in open orders
+  #  @return cash - reserved cash in open orders
   def availableFunds(self):
     value = self.cash
     for order in self.orders:
-      value -= order.reservedCash
+      value -= order.value
     return value
 
   ## Get the value of the portfolio

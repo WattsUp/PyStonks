@@ -73,6 +73,7 @@ class Security:
     self.minute = Candles(minuteData, minute=True)
     self.day = Candles(dayData, minute=False)
     self.shares = 0
+    self.cost = 0
 
   ## Setup the initial conditions of the simulation
   #  @param shares to start the security with
@@ -89,6 +90,22 @@ class Security:
   #  @param shares * most recent close price
   def value(self):
     return self.shares * self.minute[0].close
+
+  ## Trade shares of the security
+  #  @param shares to move, positive for buy, negative for sell
+  #  @param executed price of the order
+  def _transaction(self, shares, executedPrice):
+    profit = None
+    if shares > 0:
+      self.cost += abs(executedPrice)
+    else:
+      price = self.cost * abs(shares) / self.shares
+      self.cost -= price
+      profit = abs(executedPrice) - price
+    self.shares += shares
+    if self.shares < 0:
+      raise ValueError("Holding negative shares of " + self.symbol)
+    return profit
 
 class Alpaca:
   WATCHLIST_NAME = "stonks list"

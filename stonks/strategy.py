@@ -15,7 +15,7 @@ class Strategy:
   ## Set the securities used by the strategy
   #  @param securities dictionary of symbol key, alpaca.Data value
   def _setup(self, securities, initialCapital):
-    self.portfolio = portfolio.Portfolio(securities, initialCapital)
+    self.portfolio = portfolio.Portfolio(securities, initialCapital, self.orderUpdate)
 
   ## Operate on the next minute data, override this
   def nextMinute(self):
@@ -27,6 +27,19 @@ class Strategy:
   def log(self, msg, dt=None):
     dt = dt or self.portfolio.timestamp
     print("{} {}".format(dt, msg))
+
+  ## Callback for updating an order
+  #  @param order that was updated
+  def orderUpdate(self, order):
+    shares = abs(order.shares)
+    symbol = order.security.symbol
+    side = "buy" if (order.shares > 0) else "sell"
+    value = order.value
+    profit = order.profit
+    if profit:
+      self.log("{:8} {:4} order for {:3} shares of {:5} for ${:10.2f} => ${:7.2f} profit".format(order.status, side, shares, symbol, value, profit))
+    else:
+      self.log("{:8} {:4} order for {:3} shares of {:5} for ${:10.2f}".format(order.status, side, shares, symbol, value))
 
 class Crossover(Strategy):
   params = {"long": 200, "short": 50}
