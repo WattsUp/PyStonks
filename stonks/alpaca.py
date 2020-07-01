@@ -25,7 +25,7 @@ class Alpaca:
   def __init__(self, paper=True):
     ALPACA_API_KEY = os.getenv("ALPACA_API_KEY_PAPER")
     ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY_PAPER")
-    base_url = 'https://paper-api.alpaca.markets'
+    base_url = "https://paper-api.alpaca.markets"
 
     if not paper:
       ALPACA_API_KEY = os.getenv("ALPACA_API_KEY")
@@ -34,7 +34,7 @@ class Alpaca:
     self.api = alpaca_trade_api.REST(ALPACA_API_KEY,
                                      ALPACA_SECRET_KEY,
                                      base_url,
-                                     api_version='v2')
+                                     api_version="v2")
 
   ## Add symbols to the watchlist
   #  @param symbols list of symbols to add
@@ -105,7 +105,7 @@ class Alpaca:
     candles = pd.DataFrame()
     if os.path.exists(filename):
       candles = pd.read_feather(filename)
-      candles.set_index('timestamp', inplace=True)
+      candles.set_index("timestamp", inplace=True)
       candles.index = candles.index.tz_convert(est)
       start = candles.index[-1].to_pydatetime()
 
@@ -136,8 +136,8 @@ class Alpaca:
 
     # Fill in any holes
     for index in candles[pd.isnull(candles).any(axis=1)].index:
-      iindex = candles.index.get_loc(index)
-      closePrice = candles.iloc[iindex - 1].close
+      intIndex = candles.index.get_loc(index)
+      closePrice = candles.iloc[intIndex - 1].close
       row = candles.loc[index]
       row.open = closePrice
       row.high = closePrice
@@ -165,7 +165,7 @@ class Alpaca:
     candles = pd.DataFrame()
     if os.path.exists(filename):
       candles = pd.read_feather(filename)
-      candles.set_index('timestamp', inplace=True)
+      candles.set_index("timestamp", inplace=True)
       candles.index = candles.index.tz_convert(est)
       start = candles.index[-1].to_pydatetime()
 
@@ -191,8 +191,8 @@ class Alpaca:
         break
 
     for index in candles[pd.isnull(candles).any(axis=1)].index:
-      iindex = candles.index.get_loc(index)
-      closePrice = candles.iloc[iindex - 1].close
+      intIndex = candles.index.get_loc(index)
+      closePrice = candles.iloc[intIndex - 1].close
       row = candles.loc[index]
       row.open = closePrice
       row.high = closePrice
@@ -251,8 +251,6 @@ class Alpaca:
   #  @param toDate datetime.date end date (inclusive)
   #  @return pandas.DataFrame date indexed, open & close times
   def getCalendar(self, fromDate, toDate=datetime.date.today()):
-    latestTimestamp = pytz.utc.localize(
-      datetime.datetime.utcnow()) - datetime.timedelta(minutes=1)
     toDate = min(toDate, datetime.date.today())
     calendar = self.api.get_calendar(start=fromDate, end=toDate)
     dates = [pd.to_datetime(a.date) for a in calendar]

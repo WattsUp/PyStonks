@@ -12,6 +12,7 @@ class Strategy:
   def __init__(self):
     self.portfolio = None
     self.timestamp = None
+    self.silent = False
 
   ## Set the securities used by the strategy
   #  @param securities dictionary of symbol key, alpaca.Data value
@@ -27,8 +28,10 @@ class Strategy:
   #  @param msg message to log
   #  @param dt datetime object to timestamp with
   def log(self, msg, dt=None):
+    if self.silent:
+      return
     dt = dt or self.timestamp
-    # print("{} {}".format(dt, msg))
+    print("{} {}".format(dt, msg))
 
   ## Callback for updating an order
   #  @param order that was updated
@@ -46,28 +49,27 @@ class Strategy:
           order.status, side, shares, symbol, value))
 
 class Crossover(Strategy):
-  params = {"long": 200, "short": 50}
+  params = {"long": 20, "short": 5}
 
   def nextMinute(self):
-    pass
-    # if len(self.portfolio.orders) != 0:
-    #   return
+    if len(self.portfolio.orders) != 0:
+      return
 
-    # smaLong = 0
-    # smaShort = 0
-    # security = next(iter(self.portfolio.securities.values()))
-    # for i in range(-self.params["long"], 0):
-    #   smaLong += security.minute[i].close
-    # smaLong /= self.params["long"]
+    smaLong = 0
+    smaShort = 0
+    security = next(iter(self.portfolio.securities.values()))
+    for i in range(-self.params["long"], 0):
+      smaLong += security.minute[i].close
+    smaLong /= self.params["long"]
 
-    # smaShort = 0
-    # for i in range(-self.params["short"], 0):
-    #   smaShort += security.minute[i].close
-    # smaShort /= self.params["short"]
-    # if security.shares == 0 and smaShort > smaLong:
-    #   self.portfolio.buy(security, value=self.portfolio.availableFunds())
-    # elif security.shares != 0 and smaShort < smaLong:
-    #   self.portfolio.sell(security, shares=security.shares)
+    smaShort = 0
+    for i in range(-self.params["short"], 0):
+      smaShort += security.minute[i].close
+    smaShort /= self.params["short"]
+    if security.shares == 0 and smaShort > smaLong:
+      self.portfolio.buy(security, value=self.portfolio.availableFunds())
+    elif security.shares != 0 and smaShort < smaLong:
+      self.portfolio.sell(security, shares=security.shares)
 
 
 ## If customStrategy exists, use it, else use crossover strategy

@@ -13,16 +13,18 @@ import strategy as st
 def main():
   # toDate = datetime.date.today().replace(day=1) - datetime.timedelta(days=1)
   # fromDate = toDate.replace(year=(toDate.year - 1))
-  
-  fromDate = datetime.date(2017, 1, 1)
+
+  fromDate = datetime.date(2019, 12, 25)
   toDate = datetime.date(2019, 12, 31)
   sim = simulation.Simulation(fromDate, toDate, symbol="TSLA")
 
+  st.strategy.silent = True
   sim.setup(st.strategy, initialCapital=25000)
   sim.run()
   print(sim.report())
   sim.plot()
   # sim.plot(symbol="TSLA")
+
 
 if __name__ == "__main__":
   main()

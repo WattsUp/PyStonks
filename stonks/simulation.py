@@ -25,14 +25,24 @@ class Simulation:
     self.strategy = None
     self.cash = 0
     self.securities = {}
+    self.securitiesPrice = {}
+    self.securitiesShares = {}
+    self.securitiesProfit = {}
     self.calendar = self.api.getCalendar(fromDate, toDate)
     self.timestamps = []
+    self.dates = []
     if symbol:
       self.securities[symbol] = self.api.loadSymbol(symbol, self.calendar)
+      self.securitiesPrice[symbol] = []
+      self.securitiesShares[symbol] = []
+      self.securitiesProfit[symbol] = []
     else:
       symbols = self.api.getSymbols()
       for symbol in symbols:
         self.securities[symbol] = self.api.loadSymbol(symbol, self.calendar)
+        self.securitiesPrice[symbol] = []
+        self.securitiesShares[symbol] = []
+        self.securitiesProfit[symbol] = []
     if len(self.securities.keys()) == 0:
       print("No symbols loaded")
       sys.exit(1)
@@ -57,10 +67,21 @@ class Simulation:
     for index, row in self.calendar.iterrows():
       timestamps = self.api.getTimestamps(row)
       for timestamp in timestamps:
-        self.timestamps.append(timestamp)
         self.strategy.timestamp = timestamp
         self.strategy.portfolio._processOrders()
-        self.strategy.nextMinute()
+        try:
+          self.strategy.nextMinute()
+        except ValueError:
+          pass
+        finally:
+          self.timestamps.append(timestamp)
+          for security in self.securities.values():
+            self.securitiesPrice[security.symbol].append(
+              security.minute[0].close)
+            self.securitiesShares[security.symbol].append(
+              security.shares)
+            self.securitiesProfit[security.symbol].append(
+              security.lifeTimeProfit)
         self.strategy.portfolio._nextMinute()
 
       value = self.strategy.portfolio.value()
@@ -69,6 +90,7 @@ class Simulation:
       else:
         self.dailyReturn.append(0)
       self.closingValue.append(value)
+      self.dates.append(index)
       self.strategy.portfolio._marketClose()
 
     print("Elapsed test duration: {}".format(datetime.datetime.now() - start))
@@ -104,23 +126,106 @@ class Simulation:
     return report
 
   def plot(self, symbol=None):
-    fig, ax1 = pyplot.subplots()
+    fig, (ax1, ax2) = pyplot.subplots(2, 1, sharex=True)
     if symbol:
-      # TODO
-      pass
+      # Plot on first subplot
+      ax1.set_ylabel("Closing Price ($)")
+      ax1.plot(
+          self.securitiesPrice[symbol],
+          color='black',
+          zorder=0,
+          label=symbol)
+      bottom, top = ax1.get_ylim()
+      offset = (top - bottom) / 20
+      # Buy and sell markers
+      tradeBuyIndex = []
+      tradeSellIndex = []
+      tradesBuy = []
+      tradesSell = []
+      prevShares = 0
+      for i in range(len(self.timestamps)):
+        shares = self.securitiesShares[symbol][i]
+        if (shares - prevShares) > 0:
+          tradesBuy.append(self.securitiesPrice[symbol][i] - offset)
+          tradeBuyIndex.append(i)
+        elif (shares - prevShares) < 0:
+          tradesSell.append(self.securitiesPrice[symbol][i] + offset)
+          tradeSellIndex.append(i)
+        prevShares = shares
+      ax1.scatter(
+          tradeBuyIndex,
+          tradesBuy,
+          color="g",
+          marker="^",
+          zorder=1,
+          label="buy")
+      ax1.scatter(
+          tradeSellIndex,
+          tradesSell,
+          color="r",
+          marker="v",
+          zorder=2,
+          label="sell")
+      ax1.legend()
+
+      # Setup second subplot and x axis
+      ax2.axhline(0, color='black')
+      ax2.set_xlabel("Timestamp")
+      ax2.set_xticks(np.arange(len(self.timestamps)), minor=True)
+      minorPeriod = int(np.ceil(len(self.timestamps) / 60))
+      ax1.xaxis.set_minor_locator(pyplot.MultipleLocator(minorPeriod))
+      majorPeriod = minorPeriod * 5
+      ax1.xaxis.set_major_locator(pyplot.MultipleLocator(majorPeriod))
+      labels = ["HIDDEN"]
+      for a in self.timestamps[0::majorPeriod]:
+        labels.append(a.replace(tzinfo=None))
+      labels.append(self.timestamps[-1].replace(tzinfo=None))
+      ax2.set_xlim(0, len(self.timestamps))
+      ax2.set_xticklabels(labels, rotation=30, horizontalalignment="right")
+
+      # Plot on second subplot
+      ax2.set_ylabel("Transaction Profit")
+      profitsIndex = []
+      profits = []
+      prevProfit = 0
+      for i in range(len(self.timestamps)):
+        profit = self.securitiesProfit[symbol][i]
+        if (profit - prevProfit) != 0:
+          profits.append(profit - prevProfit)
+          profitsIndex.append(i)
+        prevProfit = profit
+      profitColor = ['r' if i < 0 else 'g' for i in profits]
+      ax2.scatter(profitsIndex, profits, color=profitColor)
     else:
-      color = 'tab:red'
-      ax1.set_xlabel('Timestamp')
-      ax1.set_ylabel('Closing Value ($)', color=color)
-      ax1.plot(self.calendar.index, self.closingValue, color=color)
-      ax1.tick_params(axis='y', labelcolor=color)
+      # Plot on first subplot
+      ax1.axhline(self.initialCapital, color='black')
+      ax1.set_ylabel("Closing Value ($)")
+      ax1.plot(self.closingValue)
 
-      ax2 = ax1.twinx()
+      # Setup second subplot and x axis
+      ax2.axhline(0, color='black')
+      ax2.set_xlabel("Timestamp")
+      ax2.set_xticks(np.arange(len(self.dates)), minor=True)
+      minorPeriod = int(np.ceil(len(self.dates) / 60))
+      ax1.xaxis.set_minor_locator(pyplot.MultipleLocator(minorPeriod))
+      majorPeriod = minorPeriod * 5
+      ax1.xaxis.set_major_locator(pyplot.MultipleLocator(majorPeriod))
+      labels = ["HIDDEN"]
+      for a in self.dates[0::majorPeriod]:
+        labels.append(a.date())
+      labels.append(self.dates[-1].date())
+      ax2.set_xlim(0, len(self.dates))
+      ax2.set_xticklabels(labels, rotation=30, horizontalalignment="right")
 
-      color = 'tab:blue'
-      ax2.set_ylabel('Daily Return (%)', color=color)
-      ax2.plot(self.calendar.index, self.dailyReturn, color=color)
-      ax2.tick_params(axis='y', labelcolor=color)
+      # Plot on second subplot
+      ax2.set_ylabel("Daily Return (%)")
+      ax2.plot(self.dailyReturn)
 
+    ax1.grid(b=True, which="both")
+    ax2.grid(b=True, which="both")
+    ax1.grid(which='major', linestyle='-', linewidth='0.5')
+    ax1.grid(which='minor', linestyle=':', linewidth='0.5')
+    ax2.grid(which='major', linestyle='-', linewidth='0.5')
+    ax2.grid(which='minor', linestyle=':', linewidth='0.5')
     fig.tight_layout()
     pyplot.show()
