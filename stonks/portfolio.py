@@ -35,18 +35,20 @@ class Portfolio:
   #  @param initialCapital to start the wallet off with
   #  @param orderCallback function when an order is updated
   def __init__(self, securities, initialCapital, orderCallback):
-    self.timestamp = None
     self.securities = securities
     self.cash = np.float64(initialCapital)
     self.orders = []
     self.orderCallback = orderCallback
 
-  ## Set the current index of the dataFrame
-  #  @param timestamp of the current index
-  def _setCurrentTimestamp(self, timestamp):
-    self.timestamp = timestamp
+  ## Advance the current index of the security minute
+  def _nextMinute(self):
     for security in self.securities.values():
-      security._setCurrentIndex(timestamp)
+      security._nextMinute()
+
+  ## Advance the current index of the security day
+  def _marketClose(self):
+    for security in self.securities.values():
+      security._nextDay()
 
   ## Process orders, execute on the opening price
   def _processOrders(self):

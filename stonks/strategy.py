@@ -11,11 +11,13 @@ class Strategy:
   ## Initialize the strategy
   def __init__(self):
     self.portfolio = None
+    self.timestamp = None
 
   ## Set the securities used by the strategy
   #  @param securities dictionary of symbol key, alpaca.Data value
   def _setup(self, securities, initialCapital):
-    self.portfolio = portfolio.Portfolio(securities, initialCapital, self.orderUpdate)
+    self.portfolio = portfolio.Portfolio(
+        securities, initialCapital, self.orderUpdate)
 
   ## Operate on the next minute data, override this
   def nextMinute(self):
@@ -25,8 +27,8 @@ class Strategy:
   #  @param msg message to log
   #  @param dt datetime object to timestamp with
   def log(self, msg, dt=None):
-    dt = dt or self.portfolio.timestamp
-    print("{} {}".format(dt, msg))
+    dt = dt or self.timestamp
+    # print("{} {}".format(dt, msg))
 
   ## Callback for updating an order
   #  @param order that was updated
@@ -37,32 +39,35 @@ class Strategy:
     value = order.value
     profit = order.profit
     if profit:
-      self.log("{:8} {:4} order for {:3} shares of {:5} for ${:10.2f} => ${:7.2f} profit".format(order.status, side, shares, symbol, value, profit))
+      self.log("{:8} {:4} order for {:3} shares of {:5} for ${:10.2f} => ${:7.2f} profit".format(
+          order.status, side, shares, symbol, value, profit))
     else:
-      self.log("{:8} {:4} order for {:3} shares of {:5} for ${:10.2f}".format(order.status, side, shares, symbol, value))
+      self.log("{:8} {:4} order for {:3} shares of {:5} for ${:10.2f}".format(
+          order.status, side, shares, symbol, value))
 
 class Crossover(Strategy):
   params = {"long": 200, "short": 50}
 
   def nextMinute(self):
-    if len(self.portfolio.orders) != 0:
-      return
+    pass
+    # if len(self.portfolio.orders) != 0:
+    #   return
 
-    smaLong = 0
-    smaShort = 0
-    security = next(iter(self.portfolio.securities.values()))
-    for i in range(-self.params["long"], 0):
-      smaLong += security.minute[i].close
-    smaLong /= self.params["long"]
+    # smaLong = 0
+    # smaShort = 0
+    # security = next(iter(self.portfolio.securities.values()))
+    # for i in range(-self.params["long"], 0):
+    #   smaLong += security.minute[i].close
+    # smaLong /= self.params["long"]
 
-    smaShort = 0
-    for i in range(-self.params["short"], 0):
-      smaShort += security.minute[i].close
-    smaShort /= self.params["short"]
-    if security.shares == 0 and smaShort > smaLong:
-      self.portfolio.buy(security, value=self.portfolio.availableFunds())
-    elif security.shares != 0 and smaShort < smaLong:
-      self.portfolio.sell(security, shares=security.shares)
+    # smaShort = 0
+    # for i in range(-self.params["short"], 0):
+    #   smaShort += security.minute[i].close
+    # smaShort /= self.params["short"]
+    # if security.shares == 0 and smaShort > smaLong:
+    #   self.portfolio.buy(security, value=self.portfolio.availableFunds())
+    # elif security.shares != 0 and smaShort < smaLong:
+    #   self.portfolio.sell(security, shares=security.shares)
 
 
 ## If customStrategy exists, use it, else use crossover strategy

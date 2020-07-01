@@ -5,8 +5,6 @@ if sys.version_info[0] != 3 or sys.version_info[1] < 6:
   print("This script requires Python version >=3.6")
   sys.exit(1)
 
-# import live
-
 if __name__ == "__main__":
   if len(sys.argv) < 2:
     mode = None
