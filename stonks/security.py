@@ -6,6 +6,7 @@ if sys.version_info[0] != 3 or sys.version_info[1] < 6:
   sys.exit(1)
 
 import datetime
+import numpy as np
 
 class OHLCV:
   ## Initialize a OHLCV object, data storage
@@ -25,6 +26,7 @@ class Candles:
     self.dataFrame = dataFrame
     self.minute = minute
     self.currentIndex = 0
+    self.firstOpen = dataFrame.loc[dataFrame["open"].first_valid_index()].open
 
   ## Advance the currentIndex
   def _next(self):
@@ -42,6 +44,9 @@ class Candles:
     if index < 0:
       raise ValueError("(self.currentIndex + key) index must be >= 0")
 
+    if np.isnan(self.dataFrame.values[index][0]):
+      return OHLCV([self.firstOpen, self.firstOpen,
+                    self.firstOpen, self.firstOpen, 0])
     return OHLCV(self.dataFrame.values[index])
 
 class Security:
@@ -61,6 +66,10 @@ class Security:
   #  @param shares to start the security with
   def setup(self, shares=0):
     self.shares = shares
+    self.cost = 0
+    self.lifeTimeProfit = 0
+    self.minute.currentIndex = 0
+    self.day.currentIndex = 0
 
   ## Advance the current index of the minute candles
   def _nextMinute(self):

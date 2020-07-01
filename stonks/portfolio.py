@@ -24,7 +24,7 @@ class Order:
     self.profit = self.security._transaction(self.shares, executedPrice)
     self.value = abs(executedPrice)
     self.status = "COMPLETE"
-  
+
   ## Cancel the order
   def cancel(self):
     self.status = "CANCELED"
@@ -75,11 +75,11 @@ class Portfolio:
     self.orders.append(Order(security, shares))
     self.orderCallback(self.orders[-1])
 
-
   ## Buy shares of a security
   #  @param security object to buy
   #  @param shares number of shares, None to calculate from value
   #  @param value value of shares to buy (based on current minute closing price)
+
   def buy(self, security, shares=None, value=None):
     if not shares:
       shares = value / security.minute[0].close

@@ -5,7 +5,7 @@ if sys.version_info[0] != 3 or sys.version_info[1] < 6:
   print("This script requires Python version >=3.6")
   sys.exit(1)
 
-import alpaca
+from . import alpaca
 import datetime
 from matplotlib import pyplot
 import numpy as np
@@ -31,23 +31,27 @@ class Simulation:
     self.calendar = self.api.getCalendar(fromDate, toDate)
     self.timestamps = []
     self.dates = []
+    self.closingValue = []
+    self.dailyReturn = []
     if symbol:
-      self.securities[symbol] = self.api.loadSymbol(symbol, self.calendar)
-      self.securitiesPrice[symbol] = []
-      self.securitiesShares[symbol] = []
-      self.securitiesProfit[symbol] = []
-    else:
-      symbols = self.api.getSymbols()
-      for symbol in symbols:
-        self.securities[symbol] = self.api.loadSymbol(symbol, self.calendar)
+      security = self.api.loadSymbol(symbol, self.calendar)
+      if security:
+        self.securities[symbol] = security
         self.securitiesPrice[symbol] = []
         self.securitiesShares[symbol] = []
         self.securitiesProfit[symbol] = []
+    else:
+      symbols = self.api.getSymbols()
+      for symbol in symbols:
+        security = self.api.loadSymbol(symbol, self.calendar)
+        if security:
+          self.securities[symbol] = security
+          self.securitiesPrice[symbol] = []
+          self.securitiesShares[symbol] = []
+          self.securitiesProfit[symbol] = []
     if len(self.securities.keys()) == 0:
       print("No symbols loaded")
       sys.exit(1)
-    self.closingValue = []
-    self.dailyReturn = []
 
   ## Setup the initial conditions of the simulation
   #  @param strategy object to simulate
@@ -58,6 +62,14 @@ class Simulation:
     self.strategy._setup(self.securities, initialCapital)
     for security in self.securities.values():
       security.setup()
+    for symbol in self.securities.keys():
+      self.securitiesPrice[symbol] = []
+      self.securitiesShares[symbol] = []
+      self.securitiesProfit[symbol] = []
+    self.timestamps = []
+    self.dates = []
+    self.closingValue = []
+    self.dailyReturn = []
 
     # TODO test how many historical days the strategy needs
 

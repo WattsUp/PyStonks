@@ -13,7 +13,7 @@ import numpy as np
 import os
 import pandas as pd
 import pytz
-import security
+from . import security
 
 est = pytz.timezone("America/New_York")
 
@@ -133,11 +133,15 @@ class Alpaca:
     # Only keep rows when the market is open
     timestamps = self.getTimestamps(self.getCalendar(date.replace(day=1), end))
     candles = candles.reindex(timestamps)
+    earliestOpen = candles.loc[candles["open"].first_valid_index()].open
 
     # Fill in any holes
     for index in candles[pd.isnull(candles).any(axis=1)].index:
       intIndex = candles.index.get_loc(index)
-      closePrice = candles.iloc[intIndex - 1].close
+      if intIndex == 0:
+        closePrice = earliestOpen
+      else:
+        closePrice = candles.iloc[intIndex - 1].close
       row = candles.loc[index]
       row.open = closePrice
       row.high = closePrice
@@ -214,22 +218,7 @@ class Alpaca:
     print("Loading {:>5}".format(symbol), end="", flush=True)
     fromDate = calendar.index[0]
     toDate = calendar.index[-1]
-    fromDatetime = est.localize(
-        datetime.datetime.combine(fromDate, datetime.time(0, 0, 0)))
-    toDatetime = est.localize(
-        datetime.datetime.combine(toDate, datetime.time(23, 59, 59)))
-
-    # Get the monthly minute bar data for the contained months
-    start = fromDate.replace(day=1)
-    candlesMinutes = pd.DataFrame()
-    while start <= toDate:
-      candles = self._loadMinuteBars(symbol, start, calendar)
-      candlesMinutes = pd.concat([candlesMinutes, candles])
-      start = datetime.date(
-        start.year + (start.month // 12), start.month % 12 + 1, 1)
-      print(".", end="", flush=True)
-    candlesMinutes = candlesMinutes[candlesMinutes.index >= fromDatetime]
-    candlesMinutes = candlesMinutes[candlesMinutes.index <= toDatetime]
+    timestamps = self.getTimestamps(calendar)
 
     # Get the yearly daily bar data for the contained years
     start = fromDate.replace(month=1, day=1)
@@ -239,8 +228,21 @@ class Alpaca:
       candlesDays = pd.concat([candlesDays, candles])
       start = datetime.date(start.year + 1, 1, 1)
       print(".", end="", flush=True)
-    candlesDays = candlesDays[candlesDays.index >= fromDatetime]
-    candlesDays = candlesDays[candlesDays.index <= toDatetime]
+    candlesDays = candlesDays.reindex(calendar.index)
+    if candlesDays.empty:
+      print("no data, before historic data")
+      return None
+
+    # Get the monthly minute bar data for the contained months
+    start = candlesDays["open"].first_valid_index().replace(day=1)
+    candlesMinutes = pd.DataFrame()
+    while start <= toDate:
+      candles = self._loadMinuteBars(symbol, start, calendar)
+      candlesMinutes = pd.concat([candlesMinutes, candles])
+      start = datetime.date(
+        start.year + (start.month // 12), start.month % 12 + 1, 1)
+      print(".", end="", flush=True)
+    candlesMinutes = candlesMinutes.reindex(timestamps)
 
     print("complete", flush=True)
 
@@ -252,8 +254,10 @@ class Alpaca:
   #  @return pandas.DataFrame date indexed, open & close times
   def getCalendar(self, fromDate, toDate=datetime.date.today()):
     toDate = min(toDate, datetime.date.today())
-    calendar = self.api.get_calendar(start=fromDate, end=toDate)
-    dates = [pd.to_datetime(a.date) for a in calendar]
+    calendar = self.api.get_calendar(
+        start=fromDate.isoformat(),
+        end=toDate.isoformat())
+    dates = [pd.to_datetime(est.localize(a.date)) for a in calendar]
     opens = [a.open for a in calendar]
     closes = [a.close for a in calendar]
     df = pd.DataFrame(data={"open": opens, "close": closes}, index=dates)

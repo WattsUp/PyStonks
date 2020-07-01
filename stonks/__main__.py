@@ -11,6 +11,9 @@ if __name__ == "__main__":
   else:
     mode = sys.argv[1].lower()
 
+  # TODO optimize parameters to maximize sharpe or Sortino
+  # TODO add live mode with a paper account or real account
+
   if mode == "test":
     print("Testing")
     import test
