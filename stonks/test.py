@@ -6,8 +6,8 @@ if sys.version_info[0] != 3 or sys.version_info[1] < 6:
   sys.exit(1)
 
 import datetime
-import simulation
-import strategy as st
+from . import simulation
+from . import strategy as st
 
 ## Main function
 def main():

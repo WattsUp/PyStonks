@@ -16,10 +16,10 @@ if __name__ == "__main__":
 
   if mode == "test":
     print("Testing")
-    import test
+    from stonks import test
     test.main()
   elif mode == "add":
-    import alpaca
+    from stonks import alpaca
     api = alpaca.Alpaca()
     api.addSymbols(sys.argv[2:])
   # elif mode == "live":

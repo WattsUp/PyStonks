@@ -117,7 +117,7 @@ class Alpaca:
 
     while True:
       response = self.api.polygon.historic_agg_v2(
-          symbol, 1, "minute", start.isoformat(), end.isoformat()).df
+          symbol, 1, "minute", start.isoformat(), end.isoformat(), limit=50000).df
       if response.empty:
         return candles
       response.index = response.index.tz_convert(est)
