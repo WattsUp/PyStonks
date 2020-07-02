@@ -9,19 +9,23 @@ import datetime
 from . import simulation
 from . import strategy as st
 
-## Main function
-def main():
+## Setup a test over the past year, run, print report, and plot portfolio
+#  @param strategy to test
+#  @param symbol of strategy to test on, None for all from watchlist
+def quickTest(strategy, symbol=None):
   toDate = datetime.date.today().replace(day=1) - datetime.timedelta(days=1)
-  fromDate = toDate - datetime.timedelta(days=5)
-  # fromDate = toDate.replace(year=(toDate.year - 1))
-
-  sim = simulation.Simulation(fromDate, toDate)
-
-  # st.strategy.silent = True
-  sim.setup(st.strategy, initialCapital=25000)
+  fromDate = toDate.replace(year=(toDate.year - 1))
+  sim = simulation.Simulation(fromDate, toDate, symbol=symbol)
+  sim.setup(strategy)
   sim.run()
   print(sim.report())
   sim.plot()
+
+
+## Main function
+def main():
+  st.strategy.silent = True
+  quickTest(st.strategy)
 
 
 if __name__ == "__main__":

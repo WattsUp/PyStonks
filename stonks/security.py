@@ -49,6 +49,16 @@ class Candles:
                     self.firstOpen, self.firstOpen, 0])
     return OHLCV(self.dataFrame.values[index])
 
+  ## Reset the current index to the start date or 0
+  #  @param startDate to set currentIndex to, None for index of 0
+  def reset(self, startDate=None):
+    if startDate:
+      if not self.minute:
+        startDate = startDate.replace(hour=0, minute=0)
+      self.currentIndex = self.dataFrame.index.get_loc(startDate)
+    else:
+      self.currentIndex = 0
+
 class Security:
   ## Initialize Security object collection of minute and daily candle data
   #  @param symbol name of stored symbol
@@ -64,12 +74,12 @@ class Security:
 
   ## Setup the initial conditions of the simulation
   #  @param shares to start the security with
-  def setup(self, shares=0):
+  def setup(self, shares=0, startDate=None):
     self.shares = shares
     self.cost = 0
     self.lifeTimeProfit = 0
-    self.minute.currentIndex = 0
-    self.day.currentIndex = 0
+    self.minute.reset(startDate)
+    self.day.reset(startDate)
 
   ## Advance the current index of the minute candles
   def _nextMinute(self):

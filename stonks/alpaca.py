@@ -212,7 +212,7 @@ class Alpaca:
 
   ## Load the OHLCV data of a symbol between specified dates, inclusive range
   #  @param symbol to fetch data for
-  #  @param pandas.DataFrame date indexed, open & close times
+  #  @param calendar pandas.DataFrame date indexed, open & close times
   #  @return Data
   def loadSymbol(self, symbol, calendar):
     print("Loading {:>5}".format(symbol), end="", flush=True)

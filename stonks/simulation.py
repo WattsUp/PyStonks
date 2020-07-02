@@ -20,7 +20,9 @@ class Simulation:
   #  @param fromDate datetime.date start date (inclusive)
   #  @param toDate datetime.date end date (inclusive)
   #  @param symbol to load, None will load all symbols from watchlist
-  def __init__(self, fromDate, toDate=datetime.date.today(), symbol=None):
+  #  @param preStart number of days to prepend, note: calendar days not trading days
+  def __init__(self, fromDate, toDate=datetime.date.today(),
+               symbol=None, preStart=50):
     self.api = alpaca.Alpaca()
     self.strategy = None
     self.cash = 0
@@ -28,13 +30,19 @@ class Simulation:
     self.securitiesPrice = {}
     self.securitiesShares = {}
     self.securitiesProfit = {}
+    preStartFromDate = fromDate - datetime.timedelta(days=preStart)
+    loadCalendar = self.api.getCalendar(preStartFromDate, toDate)
     self.calendar = self.api.getCalendar(fromDate, toDate)
     self.timestamps = []
     self.dates = []
     self.closingValue = []
     self.dailyReturn = []
+    self.startDate = est.localize(
+        datetime.datetime.combine(
+            self.calendar.index[0],
+            self.calendar.open[0]))
     if symbol:
-      security = self.api.loadSymbol(symbol, self.calendar)
+      security = self.api.loadSymbol(symbol, loadCalendar)
       if security:
         self.securities[symbol] = security
         self.securitiesPrice[symbol] = []
@@ -43,7 +51,7 @@ class Simulation:
     else:
       symbols = self.api.getSymbols()
       for symbol in symbols:
-        security = self.api.loadSymbol(symbol, self.calendar)
+        security = self.api.loadSymbol(symbol, loadCalendar)
         if security:
           self.securities[symbol] = security
           self.securitiesPrice[symbol] = []
@@ -61,7 +69,7 @@ class Simulation:
     self.strategy = strategy
     self.strategy._setup(self.securities, initialCapital)
     for security in self.securities.values():
-      security.setup()
+      security.setup(startDate=self.startDate)
     for symbol in self.securities.keys():
       self.securitiesPrice[symbol] = []
       self.securitiesShares[symbol] = []
@@ -71,8 +79,6 @@ class Simulation:
     self.closingValue = []
     self.dailyReturn = []
 
-    # TODO test how many historical days the strategy needs
-
   ## Run a simulation, expects setup to be called just before
   def run(self):
     start = datetime.datetime.now()
@@ -81,19 +87,17 @@ class Simulation:
       for timestamp in timestamps:
         self.strategy.timestamp = timestamp
         self.strategy.portfolio._processOrders()
-        try:
-          self.strategy.nextMinute()
-        except ValueError:
-          pass
-        finally:
-          self.timestamps.append(timestamp)
-          for security in self.securities.values():
-            self.securitiesPrice[security.symbol].append(
-              security.minute[0].close)
-            self.securitiesShares[security.symbol].append(
-              security.shares)
-            self.securitiesProfit[security.symbol].append(
-              security.lifeTimeProfit)
+
+        self.strategy.nextMinute()
+
+        self.timestamps.append(timestamp)
+        for security in self.securities.values():
+          self.securitiesPrice[security.symbol].append(
+            security.minute[0].close)
+          self.securitiesShares[security.symbol].append(
+            security.shares)
+          self.securitiesProfit[security.symbol].append(
+            security.lifeTimeProfit)
         self.strategy.portfolio._nextMinute()
 
       value = self.strategy.portfolio.value()
