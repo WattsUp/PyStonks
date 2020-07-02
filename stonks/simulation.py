@@ -80,8 +80,11 @@ class Simulation:
     self.dailyReturn = []
 
   ## Run a simulation, expects setup to be called just before
-  def run(self):
+  #  @return datetime.datetime elapsed time of executing the test
+  def run(self, progressBar=True):
     start = datetime.datetime.now()
+    progressTick = max(1, np.floor(len(self.calendar.index) / 40))
+    i = 0
     for index, row in self.calendar.iterrows():
       timestamps = self.api.getTimestamps(row)
       for timestamp in timestamps:
@@ -108,38 +111,82 @@ class Simulation:
       self.closingValue.append(value)
       self.dates.append(index)
       self.strategy.portfolio._marketClose()
+      i = (i + 1) % progressTick
+      if i == 0 and progressBar:
+        print(".", end="", flush=True)
 
-    print("Elapsed test duration: {}".format(datetime.datetime.now() - start))
+    return datetime.datetime.now() - start
+
+  ## Optimize a single parameter of a strategy by running though its possible values and checking a metric
+  #  @param strategy object to test
+  #  @param paramName to manipulate
+  #  @param paramRange to iterate through
+  #  @param targetMetric to output value for
+  def optimize(self, strategy, paramName, paramRange, targetMetric="sortino"):
+    for i in paramRange:
+      strategy.params[paramName] = i
+      self.setup(strategy)
+      self.run(progressBar=True)
+      print("[{}={:3} -> {}={:6.3f}]".format(paramName, i,
+                                             targetMetric, self.report()[targetMetric]))
+
+  ## Optimize a single parameter of a strategy by running though its possible values and checking a metric
+  #  @param strategy object to test
+  #  @param param1Name to manipulate
+  #  @param param1Range to iterate through
+  #  @param param2Name to manipulate
+  #  @param param2Range to iterate through
+  #  @param targetMetric to output value for
+  def optimize2(self, strategy, param1Name, param1Range,
+                param2Name, param2Range, targetMetric="sortino"):
+    for i in param1Range:
+      strategy.params[param1Name] = i
+      for ii in param2Range:
+        strategy.params[param2Name] = ii
+        self.setup(strategy)
+        self.run(progressBar=True)
+        print("[{}={:3}, {}={:3} -> {}={:6.3f}]".format(param1Name, i,
+                                                        param2Name, ii, targetMetric, self.report()[targetMetric]))
 
   ## Generate a report of the simulation with statistics
-  #  @return multiline string
+  #  @return dictionary of statistics
   def report(self):
-    report = ""
+    report = {}
     avgDailyReturn = np.mean(self.dailyReturn)
     stddev = np.std(self.dailyReturn)
     if stddev == 0:
-      report += "Sharpe ratio:   +inf\n"
+      report["sharpe"] = 0
     else:
       sharpe = avgDailyReturn / stddev * np.sqrt(252)
-      report += "Sharpe ratio:   {:.3f}\n".format(sharpe)
+      report["sharpe"] = sharpe
 
     negativeReturns = np.array([a for a in self.dailyReturn if a < 0])
     downsideVariance = np.sum(negativeReturns**2) / len(self.dailyReturn)
     if downsideVariance == 0:
-      report += "Sortino ratio:  +inf\n"
+      report["sortino"] = 0
     else:
       sortino = avgDailyReturn / np.sqrt(downsideVariance) * np.sqrt(252)
-      report += "Sortino ratio:  {:.3f}\n".format(sortino)
+      report["sortino"] = sortino
 
-    report += "Closing value:  ${:10.2f}\n".format(self.closingValue[-1])
+    report["close"] = self.closingValue[-1]
     profit = self.closingValue[-1] - self.initialCapital
+    report["profit"] = profit
     profitPercent = profit / self.initialCapital
+    report["profit-percent"] = profitPercent
     # (PeriodPercent + 1)^(number of periods in a trading year)
     profitPercentYr = np.power(
       (profitPercent + 1), 252 / len(self.closingValue)) - 1
-    report += "Closing profit: ${:10.2f} = {:.2f}% = {:.2f}%(yr)\n".format(
-        profit, profitPercent * 100, profitPercentYr * 100)
+    report["profit-percent-yr"] = profitPercentYr
     return report
+
+  ## Generate and print a report of the last run
+  def printReport(self):
+    report = self.report()
+    print("Sharpe ratio:    {:11.3f}".format(report["sharpe"]))
+    print("Sortino ratio:   {:11.3f}".format(report["sortino"]))
+    print("Closing value:  ${:10.2f}".format(report["close"]))
+    print("Closing profit: ${:10.2f} = {:.2f}% = {:.2f}%(yr)\n".format(
+        report["profit"], report["profit-percent"] * 100, report["profit-percent-yr"] * 100))
 
   def plot(self, symbol=None):
     fig, (ax1, ax2) = pyplot.subplots(2, 1, sharex=True)

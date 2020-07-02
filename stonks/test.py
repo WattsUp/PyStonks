@@ -17,9 +17,9 @@ def quickTest(strategy, symbol=None):
   fromDate = toDate.replace(year=(toDate.year - 1))
   sim = simulation.Simulation(fromDate, toDate, symbol=symbol)
   sim.setup(strategy)
-  sim.run()
-  print(sim.report())
-  sim.plot()
+  print("Elapsed test duration: {}".format(sim.run()))
+  sim.printReport()
+  sim.plot(symbol=symbol)
 
 
 ## Main function
