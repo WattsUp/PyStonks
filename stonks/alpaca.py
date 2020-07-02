@@ -35,6 +35,9 @@ class Alpaca:
                                      ALPACA_SECRET_KEY,
                                      base_url,
                                      api_version="v2")
+    self.nextOpen = None
+    self.nextClose = None
+    self.open = None
 
   ## Add symbols to the watchlist
   #  @param symbols list of symbols to add
@@ -291,3 +294,34 @@ class Alpaca:
         timestamps.append(timestamp)
         timestamp = timestamp + datetime.timedelta(minutes=1)
     return pd.DatetimeIndex(timestamps)
+
+  ## Check if the market is open or not
+  #  @return True if market is open, False otherwise
+  def isOpen(self):
+    if not self.nextOpen or not self.nextClose:
+      print("API fetch")
+      clock = self.api.get_clock()
+      self.nextOpen = clock.next_open
+      self.nextClose = clock.next_close
+      self.open = clock.is_open
+      return self.open
+
+    now = pytz.utc.localize(datetime.datetime.utcnow())
+    if self.open:
+      # Previous check was open, is it closed now?
+      if now >= self.nextClose:
+        print("API fetch")
+        clock = self.api.get_clock()
+        self.nextOpen = clock.next_open
+        self.nextClose = clock.next_close
+        self.open = clock.is_open
+    else:
+      # Previous check was closed, is it open now?
+      if now >= self.nextOpen:
+        print("API fetch")
+        clock = self.api.get_clock()
+        self.nextOpen = clock.next_open
+        self.nextClose = clock.next_close
+        self.open = clock.is_open
+
+    return self.open

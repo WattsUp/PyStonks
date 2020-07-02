@@ -11,8 +11,6 @@ if __name__ == "__main__":
   else:
     mode = sys.argv[1].lower()
 
-  # TODO add live mode with a paper account or real account
-
   if mode == "test":
     print("Testing")
     from stonks import test
@@ -25,9 +23,10 @@ if __name__ == "__main__":
     print("Optimizing")
     from stonks import optimize
     optimize.main()
-  # elif mode == "live":
-  #   print("Live Trading")
-  #   live.main()
+  elif mode == "live":
+    print("Live Trading")
+    from stonks import live
+    live.main()
   else:
     print("Perform or test a stock trading algorithm")
     print("Follow with mode to execute algorithm")

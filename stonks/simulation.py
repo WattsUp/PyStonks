@@ -195,7 +195,7 @@ class Simulation:
       ax1.set_ylabel("Closing Price ($)")
       ax1.plot(
           self.securitiesPrice[symbol],
-          color='black',
+          color="black",
           zorder=0,
           label=symbol)
       bottom, top = ax1.get_ylim()
@@ -232,7 +232,7 @@ class Simulation:
       ax1.legend()
 
       # Setup second subplot and x axis
-      ax2.axhline(0, color='black')
+      ax2.axhline(0, color="black")
       ax2.set_xlabel("Timestamp")
       ax2.set_xticks(np.arange(len(self.timestamps)), minor=True)
       minorPeriod = int(np.ceil(len(self.timestamps) / 60))
@@ -257,16 +257,16 @@ class Simulation:
           profits.append(profit - prevProfit)
           profitsIndex.append(i)
         prevProfit = profit
-      profitColor = ['r' if i < 0 else 'g' for i in profits]
+      profitColor = ["r" if i < 0 else "g" for i in profits]
       ax2.scatter(profitsIndex, profits, color=profitColor)
     else:
       # Plot on first subplot
-      ax1.axhline(self.initialCapital, color='black')
+      ax1.axhline(self.initialCapital, color="black")
       ax1.set_ylabel("Closing Value ($)")
       ax1.plot(self.closingValue)
 
       # Setup second subplot and x axis
-      ax2.axhline(0, color='black')
+      ax2.axhline(0, color="black")
       ax2.set_xlabel("Timestamp")
       ax2.set_xticks(np.arange(len(self.dates)), minor=True)
       minorPeriod = int(np.ceil(len(self.dates) / 60))
@@ -286,9 +286,9 @@ class Simulation:
 
     ax1.grid(b=True, which="both")
     ax2.grid(b=True, which="both")
-    ax1.grid(which='major', linestyle='-', linewidth='0.5')
-    ax1.grid(which='minor', linestyle=':', linewidth='0.5')
-    ax2.grid(which='major', linestyle='-', linewidth='0.5')
-    ax2.grid(which='minor', linestyle=':', linewidth='0.5')
+    ax1.grid(which="major", linestyle="-", linewidth="0.5")
+    ax1.grid(which="minor", linestyle=":", linewidth="0.5")
+    ax2.grid(which="major", linestyle="-", linewidth="0.5")
+    ax2.grid(which="minor", linestyle=":", linewidth="0.5")
     fig.tight_layout()
     pyplot.show()
