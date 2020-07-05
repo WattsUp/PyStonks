@@ -94,7 +94,7 @@ class Portfolio:
   def availableFunds(self):
     value = self.cash
     for order in self.orders:
-      value -= order.value
+      value -= max(0, order.value)
     return value
 
   ## Get the value of the portfolio

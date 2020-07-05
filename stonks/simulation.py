@@ -80,12 +80,19 @@ class Simulation:
     self.dailyReturn = []
 
   ## Run a simulation, expects setup to be called just before
+  #  @param progressBar will output a dot every so often until complete when True
+  #  @param recordSecurityStats will log each security's price and shares when True
   #  @return datetime.datetime elapsed time of executing the test
-  def run(self, progressBar=True):
+  def run(self, progressBar=True, recordSecurityStats=True):
     start = datetime.datetime.now()
     progressTick = max(1, np.floor(len(self.calendar.index) / 40))
     i = 0
+    lastWeekNumber = None
     for index, row in self.calendar.iterrows():
+      weekNumber = index.isocalendar()[1]
+      if weekNumber != lastWeekNumber:
+        print("New week", index)
+        lastWeekNumber = weekNumber
       timestamps = self.api.getTimestamps(row)
       for timestamp in timestamps:
         self.strategy.timestamp = timestamp
@@ -93,14 +100,15 @@ class Simulation:
 
         self.strategy.nextMinute()
 
-        self.timestamps.append(timestamp)
-        for security in self.securities.values():
-          self.securitiesPrice[security.symbol].append(
-            security.minute[0].close)
-          self.securitiesShares[security.symbol].append(
-            security.shares)
-          self.securitiesProfit[security.symbol].append(
-            security.lifeTimeProfit)
+        if recordSecurityStats:
+          self.timestamps.append(timestamp)
+          for security in self.securities.values():
+            self.securitiesPrice[security.symbol].append(
+              security.minute[0].close)
+            self.securitiesShares[security.symbol].append(
+              security.shares)
+            self.securitiesProfit[security.symbol].append(
+              security.lifeTimeProfit)
         self.strategy.portfolio._nextMinute()
 
       value = self.strategy.portfolio.value()
@@ -123,10 +131,13 @@ class Simulation:
   #  @param paramRange to iterate through
   #  @param targetMetric to output value for
   def optimize(self, strategy, paramName, paramRange, targetMetric="sortino"):
+    # TODO allow optimize to operate multithreaded
+    # TODO allow n parameters to modify: itertools.product(*all_list)
+    strategy.silent = True
     for i in paramRange:
       strategy.params[paramName] = i
       self.setup(strategy)
-      self.run(progressBar=True)
+      self.run(progressBar=True, recordSecurityStats=False)
       print("[{}={:3} -> {}={:6.3f}]".format(paramName, i,
                                              targetMetric, self.report()[targetMetric]))
 
@@ -139,12 +150,13 @@ class Simulation:
   #  @param targetMetric to output value for
   def optimize2(self, strategy, param1Name, param1Range,
                 param2Name, param2Range, targetMetric="sortino"):
+    strategy.silent = True
     for i in param1Range:
       strategy.params[param1Name] = i
       for ii in param2Range:
         strategy.params[param2Name] = ii
         self.setup(strategy)
-        self.run(progressBar=True)
+        self.run(progressBar=True, recordSecurityStats=False)
         print("[{}={:3}, {}={:3} -> {}={:6.3f}]".format(param1Name, i,
                                                         param2Name, ii, targetMetric, self.report()[targetMetric]))
 

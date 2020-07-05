@@ -44,11 +44,15 @@ class Strategy:
     value = order.value
     profit = order.profit
     if profit:
-      self.log("{:8} {:4} order for {:3} shares of {:5} for ${:10.2f} => ${:7.2f} profit".format(
+      self.log("{:8} {:4} order for {:4.0f} shares of {:5} for ${:10.2f} => ${:7.2f} profit".format(
           order.status, side, shares, symbol, value, profit))
     else:
-      self.log("{:8} {:4} order for {:3} shares of {:5} for ${:10.2f}".format(
+      self.log("{:8} {:4} order for {:4.0f} shares of {:5} for ${:10.2f}".format(
           order.status, side, shares, symbol, value))
+
+# TODO add a walk forward routine
+# Starting with the starte a week ago, optimize params for that week
+# Proceed with the best algorithm it should have used last week
 
 class Crossover(Strategy):
   params = {"long": 20, "short": 5}
@@ -76,9 +80,12 @@ class Crossover(Strategy):
 
 ## If customStrategy exists, use it, else use crossover strategy
 import imp
+import importlib
 try:
-  imp.find_module("customStrategy")
-  import customStrategy
+  # imp.find_module("customStrategy")
+  from . import customStrategy
+  importlib.reload(customStrategy)
   strategy = customStrategy.strategy
 except ImportError:
+  print("Using default crossover strategy")
   strategy = Crossover()
