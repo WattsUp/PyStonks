@@ -19,7 +19,7 @@ if __name__ == "__main__":
     from stonks import alpaca
     api = alpaca.Alpaca()
     api.addSymbols(sys.argv[2:])
-  if mode == "optimize":
+  elif mode == "optimize":
     print("Optimizing")
     from stonks import optimize
     optimize.main()

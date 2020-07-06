@@ -32,6 +32,7 @@ class Simulation:
     self.securitiesProfit = {}
     preStartFromDate = fromDate - datetime.timedelta(days=preStart)
     loadCalendar = self.api.getCalendar(preStartFromDate, toDate)
+    loadTimestamps = self.api.getTimestamps(loadCalendar)
     self.calendar = self.api.getCalendar(fromDate, toDate)
     self.timestamps = []
     self.dates = []
@@ -42,7 +43,7 @@ class Simulation:
             self.calendar.index[0],
             self.calendar.open[0]))
     if symbol:
-      security = self.api.loadSymbol(symbol, loadCalendar)
+      security = self.api.loadSymbol(symbol, loadCalendar, loadTimestamps)
       if security:
         self.securities[symbol] = security
         self.securitiesPrice[symbol] = []
@@ -51,7 +52,7 @@ class Simulation:
     else:
       symbols = self.api.getSymbols()
       for symbol in symbols:
-        security = self.api.loadSymbol(symbol, loadCalendar)
+        security = self.api.loadSymbol(symbol, loadCalendar, loadTimestamps)
         if security:
           self.securities[symbol] = security
           self.securitiesPrice[symbol] = []

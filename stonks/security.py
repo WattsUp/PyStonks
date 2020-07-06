@@ -24,6 +24,7 @@ class Candles:
   #  @param minute True if dataFrame is minute data, False if dataFrame is daily data
   def __init__(self, dataFrame, minute=True):
     self.dataFrame = dataFrame
+    self.values = dataFrame.values
     self.minute = minute
     self.currentIndex = 0
     self.firstOpen = dataFrame.loc[dataFrame["open"].first_valid_index()].open
@@ -44,10 +45,10 @@ class Candles:
     if index < 0:
       raise ValueError("(self.currentIndex + key) index must be >= 0")
 
-    if np.isnan(self.dataFrame.values[index][0]):
+    if np.isnan(self.values[index][0]):
       return OHLCV([self.firstOpen, self.firstOpen,
                     self.firstOpen, self.firstOpen, 0])
-    return OHLCV(self.dataFrame.values[index])
+    return OHLCV(self.values[index])
 
   ## Reset the current index to the start date or 0
   #  @param startDate to set currentIndex to, None for index of 0

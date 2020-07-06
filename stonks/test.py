@@ -15,12 +15,12 @@ from . import strategy as st
 #  @param symbol of strategy to test on, None for all from watchlist
 def quickTest(symbol=None):
   toDate = datetime.date.today().replace(day=1) - datetime.timedelta(days=1)
-  fromDate = toDate.replace(month=(toDate.month - 1))
+  fromDate = toDate.replace(year=(toDate.year - 1))
   sim = simulation.Simulation(fromDate, toDate, symbol=symbol)
   sim.setup(st.strategy)
   print("Elapsed test duration: {}".format(sim.run()))
   sim.printReport()
-  sim.plot(symbol=symbol)
+  # sim.plot(symbol=symbol)
 
 ## Reload the strategy module and run a test, primarily for interactive development
 #  @param sim simulation object

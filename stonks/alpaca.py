@@ -198,6 +198,7 @@ class Alpaca:
         break
 
     for index in candles[pd.isnull(candles).any(axis=1)].index:
+      print("year holes")
       intIndex = candles.index.get_loc(index)
       closePrice = candles.iloc[intIndex - 1].close
       row = candles.loc[index]
@@ -216,12 +217,12 @@ class Alpaca:
   ## Load the OHLCV data of a symbol between specified dates, inclusive range
   #  @param symbol to fetch data for
   #  @param calendar pandas.DataFrame date indexed, open & close times
+  #  @param timestamps list of datetime objects for each minute market is open
   #  @return Data
-  def loadSymbol(self, symbol, calendar):
+  def loadSymbol(self, symbol, calendar, timestamps):
     print("Loading {:>5}".format(symbol), end="", flush=True)
     fromDate = calendar.index[0]
     toDate = calendar.index[-1]
-    timestamps = self.getTimestamps(calendar)
 
     # Get the yearly daily bar data for the contained years
     start = fromDate.replace(month=1, day=1)
