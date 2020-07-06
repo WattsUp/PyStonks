@@ -9,6 +9,7 @@ from . import portfolio
 
 class Strategy:
   params = {}
+  paramsAdj = {}
 
   ## Initialize the strategy
   def __init__(self):
@@ -17,10 +18,16 @@ class Strategy:
     self.silent = False
 
   ## Set the securities used by the strategy
-  #  @param securities dictionary of symbol key, alpaca.Data value
-  def _setup(self, securities, initialCapital):
+  #  @param api alpaca object
+  #  @param startDate of the simulation
+  #  @param initialCapital to start the simulation with
+  #  @param initialSecurities to start the simulations with
+  def _setup(self, api, startDate, initialCapital, initialSecurities=None):
     self.portfolio = portfolio.Portfolio(
-        securities, initialCapital, self.orderUpdate)
+        api, startDate, initialCapital, self.orderUpdate)
+    if initialSecurities:
+      for symbol, shares in initialSecurities.items():
+        self.portfolio.securities[symbol].shares = shares
 
   ## Operate on the next minute data, override this
   def nextMinute(self):
@@ -56,6 +63,7 @@ class Strategy:
 
 class Crossover(Strategy):
   params = {"long": 20, "short": 5}
+  paramsAdj = {"long": range(5, 50, 1), "short": range(2, 10, 1)}
 
   def nextMinute(self):
     if len(self.portfolio.orders) != 0:

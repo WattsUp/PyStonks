@@ -6,7 +6,9 @@ if sys.version_info[0] != 3 or sys.version_info[1] < 6:
   sys.exit(1)
 
 from . import alpaca
+import concurrent.futures
 import datetime
+import itertools
 from matplotlib import pyplot
 import numpy as np
 import pytz
@@ -21,262 +23,284 @@ class Simulation:
   #  @param toDate datetime.date end date (inclusive)
   #  @param symbol to load, None will load all symbols from watchlist
   #  @param preStart number of days to prepend, note: calendar days not trading days
+  #  @param initialCapital to start the simulation with
   def __init__(self, fromDate, toDate=datetime.date.today(),
-               symbol=None, preStart=50):
-    self.api = alpaca.Alpaca()
-    self.strategy = None
-    self.cash = 0
-    self.securities = {}
-    self.securitiesPrice = {}
-    self.securitiesShares = {}
-    self.securitiesProfit = {}
+               symbol=None, preStart=50, initialCapital=10000):
     preStartFromDate = fromDate - datetime.timedelta(days=preStart)
-    loadCalendar = self.api.getCalendar(preStartFromDate, toDate)
-    loadTimestamps = self.api.getTimestamps(loadCalendar)
+    self.api = alpaca.Alpaca(preStartFromDate, toDate=toDate, symbol=symbol)
+    self.initialCapital = initialCapital
+    # self.securities = {}
+    # self.securitiesPrice = {}
+    # self.securitiesShares = {}
+    # self.securitiesProfit = {}
     self.calendar = self.api.getCalendar(fromDate, toDate)
     self.timestamps = []
     self.dates = []
-    self.closingValue = []
-    self.dailyReturn = []
-    self.startDate = est.localize(
-        datetime.datetime.combine(
-            self.calendar.index[0],
-            self.calendar.open[0]))
-    if symbol:
-      security = self.api.loadSymbol(symbol, loadCalendar, loadTimestamps)
-      if security:
-        self.securities[symbol] = security
-        self.securitiesPrice[symbol] = []
-        self.securitiesShares[symbol] = []
-        self.securitiesProfit[symbol] = []
-    else:
-      symbols = self.api.getSymbols()
-      for symbol in symbols:
-        security = self.api.loadSymbol(symbol, loadCalendar, loadTimestamps)
-        if security:
-          self.securities[symbol] = security
-          self.securitiesPrice[symbol] = []
-          self.securitiesShares[symbol] = []
-          self.securitiesProfit[symbol] = []
-    if len(self.securities.keys()) == 0:
-      print("No symbols loaded")
-      sys.exit(1)
-
-  ## Setup the initial conditions of the simulation
-  #  @param strategy object to simulate
-  #  @param initialCapital to start the simulation with
-  def setup(self, strategy, initialCapital=10000):
-    self.initialCapital = initialCapital
-    self.strategy = strategy
-    self.strategy._setup(self.securities, initialCapital)
-    for security in self.securities.values():
-      security.setup(startDate=self.startDate)
-    for symbol in self.securities.keys():
-      self.securitiesPrice[symbol] = []
-      self.securitiesShares[symbol] = []
-      self.securitiesProfit[symbol] = []
-    self.timestamps = []
-    self.dates = []
-    self.closingValue = []
-    self.dailyReturn = []
+    self.reports = []
 
   ## Run a simulation, expects setup to be called just before
+  #  @param strategy to run
+  #  @param startDate of the simulation
   #  @param progressBar will output a dot every so often until complete when True
-  #  @param recordSecurityStats will log each security's price and shares when True
-  #  @return datetime.datetime elapsed time of executing the test
-  def run(self, progressBar=True, recordSecurityStats=True):
-    start = datetime.datetime.now()
+  #  @param recordPlotStats will log statistics for plotting when True
+  #  @param testCase information to add to the report
+  #  @param initialSecurities to start the simulations with
+  #  @return report of the run
+  def run(self, strategy, calendar=None,
+          progressBar=True, recordPlotStats=True, testCase=None, initialSecurities=None):
+    if calendar is None:
+      calendar = self.calendar
+    dailyReturn = []
+    closingValue = []
+
+    if initialSecurities and "cash" in initialSecurities.keys():
+      initialCapital = initialSecurities["cash"]
+      initialSecurities.pop("cash", None)
+    else:
+      initialCapital = self.initialCapital
+
+    startDate = est.localize(
+        datetime.datetime.combine(
+            calendar.index[0],
+            calendar.open[0]))
+    strategy._setup(self.api, startDate, initialCapital,
+                    initialSecurities=initialSecurities)
+
     progressTick = max(1, np.floor(len(self.calendar.index) / 40))
     i = 0
     lastWeekNumber = None
-    for index, row in self.calendar.iterrows():
+
+    start = datetime.datetime.now()
+    for index, row in calendar.iterrows():
       weekNumber = index.isocalendar()[1]
       if weekNumber != lastWeekNumber:
-        print("New week", index)
+        # print("New week", index)
         lastWeekNumber = weekNumber
       timestamps = self.api.getTimestamps(row)
       for timestamp in timestamps:
-        self.strategy.timestamp = timestamp
-        self.strategy.portfolio._processOrders()
+        strategy.timestamp = timestamp
+        strategy.portfolio._processOrders()
 
-        self.strategy.nextMinute()
+        strategy.nextMinute()
 
-        if recordSecurityStats:
-          self.timestamps.append(timestamp)
-          for security in self.securities.values():
-            self.securitiesPrice[security.symbol].append(
-              security.minute[0].close)
-            self.securitiesShares[security.symbol].append(
-              security.shares)
-            self.securitiesProfit[security.symbol].append(
-              security.lifeTimeProfit)
-        self.strategy.portfolio._nextMinute()
+        # if recordPlotStats:
+        #   self.timestamps.append(timestamp)
+        #   for security in self.securities.values():
+        #     self.securitiesPrice[security.symbol].append(
+        #       security.minute[0].close)
+        #     self.securitiesShares[security.symbol].append(
+        #       security.shares)
+        #     self.securitiesProfit[security.symbol].append(
+        #       security.lifeTimeProfit)
+        strategy.portfolio._nextMinute()
 
-      value = self.strategy.portfolio.value()
-      if len(self.closingValue) > 0:
-        self.dailyReturn.append((value / self.closingValue[-1] - 1) * 100)
+      value = strategy.portfolio.value()
+      if len(closingValue) > 0:
+        dailyReturn.append((value / closingValue[-1] - 1) * 100)
       else:
-        self.dailyReturn.append(0)
-      self.closingValue.append(value)
-      self.dates.append(index)
-      self.strategy.portfolio._marketClose()
+        dailyReturn.append(0)
+      closingValue.append(value)
+      if recordPlotStats:
+        self.dates.append(index)
+      strategy.portfolio._marketClose()
       i = (i + 1) % progressTick
       if i == 0 and progressBar:
         print(".", end="", flush=True)
 
-    return datetime.datetime.now() - start
-
-  ## Optimize a single parameter of a strategy by running though its possible values and checking a metric
-  #  @param strategy object to test
-  #  @param paramName to manipulate
-  #  @param paramRange to iterate through
-  #  @param targetMetric to output value for
-  def optimize(self, strategy, paramName, paramRange, targetMetric="sortino"):
-    # TODO allow optimize to operate multithreaded
-    # TODO allow n parameters to modify: itertools.product(*all_list)
-    strategy.silent = True
-    for i in paramRange:
-      strategy.params[paramName] = i
-      self.setup(strategy)
-      self.run(progressBar=True, recordSecurityStats=False)
-      print("[{}={:3} -> {}={:6.3f}]".format(paramName, i,
-                                             targetMetric, self.report()[targetMetric]))
-
-  ## Optimize a single parameter of a strategy by running though its possible values and checking a metric
-  #  @param strategy object to test
-  #  @param param1Name to manipulate
-  #  @param param1Range to iterate through
-  #  @param param2Name to manipulate
-  #  @param param2Range to iterate through
-  #  @param targetMetric to output value for
-  def optimize2(self, strategy, param1Name, param1Range,
-                param2Name, param2Range, targetMetric="sortino"):
-    strategy.silent = True
-    for i in param1Range:
-      strategy.params[param1Name] = i
-      for ii in param2Range:
-        strategy.params[param2Name] = ii
-        self.setup(strategy)
-        self.run(progressBar=True, recordSecurityStats=False)
-        print("[{}={:3}, {}={:3} -> {}={:6.3f}]".format(param1Name, i,
-                                                        param2Name, ii, targetMetric, self.report()[targetMetric]))
-
-  ## Generate a report of the simulation with statistics
-  #  @return dictionary of statistics
-  def report(self):
     report = {}
-    avgDailyReturn = np.mean(self.dailyReturn)
-    stddev = np.std(self.dailyReturn)
+    report["duration"] = datetime.datetime.now() - start
+    if progressBar:
+      print("complete")
+
+    if recordPlotStats:
+      report["close"] = closingValue
+      report["daily"] = dailyReturn
+    report["testCase"] = testCase
+
+    avgDailyReturn = np.mean(dailyReturn)
+    stddev = np.std(dailyReturn)
     if stddev == 0:
       report["sharpe"] = 0
     else:
       sharpe = avgDailyReturn / stddev * np.sqrt(252)
       report["sharpe"] = sharpe
 
-    negativeReturns = np.array([a for a in self.dailyReturn if a < 0])
-    downsideVariance = np.sum(negativeReturns**2) / len(self.dailyReturn)
+    negativeReturns = np.array([a for a in dailyReturn if a < 0])
+    downsideVariance = np.sum(negativeReturns**2) / len(dailyReturn)
     if downsideVariance == 0:
       report["sortino"] = 0
     else:
       sortino = avgDailyReturn / np.sqrt(downsideVariance) * np.sqrt(252)
       report["sortino"] = sortino
 
-    report["close"] = self.closingValue[-1]
-    profit = self.closingValue[-1] - self.initialCapital
+    profit = closingValue[-1] - initialCapital
     report["profit"] = profit
-    profitPercent = profit / self.initialCapital
+    profitPercent = profit / initialCapital
     report["profit-percent"] = profitPercent
     # (PeriodPercent + 1)^(number of periods in a trading year)
     profitPercentYr = np.power(
-      (profitPercent + 1), 252 / len(self.closingValue)) - 1
+      (profitPercent + 1), 252 / len(closingValue)) - 1
     report["profit-percent-yr"] = profitPercentYr
+
+    self.reports.append(report)
     return report
 
-  ## Generate and print a report of the last run
-  def printReport(self):
-    report = self.report()
+  ## Runner function for optimizing, sets the params of the strategy
+  #  @param strategy object to test
+  #  @param calendar of the simulation
+  #  @param paramCombination combination of parameters to execute strategy with
+  #  @param progressBar will print a dot upon completing
+  #  @param initialSecurities to start the simulations with
+  #  @return report object
+  def _optimizeRunner(self, strategy, calendar,
+                      paramCombination, progressBar=True, initialSecurities=None):
+    i = 0
+    testCase = "["
+    for param in strategy.paramsAdj.keys():
+      testCase += "{}={:4},".format(param, paramCombination[i])
+      strategy.params[param] = paramCombination[i]
+      i += 1
+    testCase += "]"
+    report = self.run(
+        strategy,
+        calendar=calendar,
+        progressBar=False,
+        recordPlotStats=False,
+        testCase=testCase,
+        initialSecurities=initialSecurities)
+    if progressBar:
+      print(".", end="", flush=True)
+    return report
+
+  ## Optimize a single parameter of a strategy by running though its possible values and checking a metric
+  #  @param strategy object to test
+  #  @param calendar of the simulation
+  #  @param targetMetric to output value for
+  #  @param progressBar will print a dot upon completing a test case
+  #  @param initialSecurities to start the simulations with
+  #  @return list of top 5 reports sorted by targetMetric
+  def optimize(self, strategy, calendar=None,
+               targetMetric="sortino", progressBar=True, initialSecurities=None):
+    strategy.silent = True
+    if not bool(strategy.paramsAdj):
+      print("No adjustable parameters, add ranges to 'paramsAdj'")
+      return
+    paramsLists = []
+    self.reports = []
+    for param in strategy.paramsAdj.values():
+      paramsLists.append(list(param))
+
+    reports = []
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+      futures = []
+      for combination in itertools.product(*paramsLists):
+        futures.append(
+            executor.submit(
+                self._optimizeRunner,
+                strategy,
+                calendar,
+                combination,
+                progressBar=progressBar,
+                initialSecurities=initialSecurities))
+      for future in concurrent.futures.as_completed(futures):
+        reports.append(future.result())
+
+    if progressBar:
+      print("complete")
+    sortedReports = sorted(
+        reports,
+        key=lambda x: x[targetMetric],
+        reverse=True)[:5]
+    return sortedReports
+
+  ## Print a report of the last run
+  #  @param report object to print, None will print the latest
+  def printReport(self, report=None):
+    if not report:
+      report = self.reports[-1]
+    print("Test duration:   {}".format(report["duration"]))
     print("Sharpe ratio:    {:11.3f}".format(report["sharpe"]))
     print("Sortino ratio:   {:11.3f}".format(report["sortino"]))
-    print("Closing value:  ${:10.2f}".format(report["close"]))
+    print("Closing value:  ${:10.2f}".format(report["close"][-1]))
     print("Closing profit: ${:10.2f} = {:.2f}% = {:.2f}%(yr)\n".format(
         report["profit"], report["profit-percent"] * 100, report["profit-percent-yr"] * 100))
 
   def plot(self, symbol=None):
     fig, (ax1, ax2) = pyplot.subplots(2, 1, sharex=True)
     if symbol:
-      # Plot on first subplot
-      ax1.set_ylabel("Closing Price ($)")
-      ax1.plot(
-          self.securitiesPrice[symbol],
-          color="black",
-          zorder=0,
-          label=symbol)
-      bottom, top = ax1.get_ylim()
-      offset = (top - bottom) / 20
-      # Buy and sell markers
-      tradeBuyIndex = []
-      tradeSellIndex = []
-      tradesBuy = []
-      tradesSell = []
-      prevShares = 0
-      for i in range(len(self.timestamps)):
-        shares = self.securitiesShares[symbol][i]
-        if (shares - prevShares) > 0:
-          tradesBuy.append(self.securitiesPrice[symbol][i] - offset)
-          tradeBuyIndex.append(i)
-        elif (shares - prevShares) < 0:
-          tradesSell.append(self.securitiesPrice[symbol][i] + offset)
-          tradeSellIndex.append(i)
-        prevShares = shares
-      ax1.scatter(
-          tradeBuyIndex,
-          tradesBuy,
-          color="g",
-          marker="^",
-          zorder=1,
-          label="buy")
-      ax1.scatter(
-          tradeSellIndex,
-          tradesSell,
-          color="r",
-          marker="v",
-          zorder=2,
-          label="sell")
-      ax1.legend()
+      # # Plot on first subplot
+      # ax1.set_ylabel("Closing Price ($)")
+      # ax1.plot(
+      #     self.securitiesPrice[symbol],
+      #     color="black",
+      #     zorder=0,
+      #     label=symbol)
+      # bottom, top = ax1.get_ylim()
+      # offset = (top - bottom) / 20
+      # # Buy and sell markers
+      # tradeBuyIndex = []
+      # tradeSellIndex = []
+      # tradesBuy = []
+      # tradesSell = []
+      # prevShares = 0
+      # for i in range(len(self.timestamps)):
+      #   shares = self.securitiesShares[symbol][i]
+      #   if (shares - prevShares) > 0:
+      #     tradesBuy.append(self.securitiesPrice[symbol][i] - offset)
+      #     tradeBuyIndex.append(i)
+      #   elif (shares - prevShares) < 0:
+      #     tradesSell.append(self.securitiesPrice[symbol][i] + offset)
+      #     tradeSellIndex.append(i)
+      #   prevShares = shares
+      # ax1.scatter(
+      #     tradeBuyIndex,
+      #     tradesBuy,
+      #     color="g",
+      #     marker="^",
+      #     zorder=1,
+      #     label="buy")
+      # ax1.scatter(
+      #     tradeSellIndex,
+      #     tradesSell,
+      #     color="r",
+      #     marker="v",
+      #     zorder=2,
+      #     label="sell")
+      # ax1.legend()
 
-      # Setup second subplot and x axis
-      ax2.axhline(0, color="black")
-      ax2.set_xlabel("Timestamp")
-      ax2.set_xticks(np.arange(len(self.timestamps)), minor=True)
-      minorPeriod = int(np.ceil(len(self.timestamps) / 60))
-      ax1.xaxis.set_minor_locator(pyplot.MultipleLocator(minorPeriod))
-      majorPeriod = minorPeriod * 5
-      ax1.xaxis.set_major_locator(pyplot.MultipleLocator(majorPeriod))
-      labels = ["HIDDEN"]
-      for a in self.timestamps[0::majorPeriod]:
-        labels.append(a.replace(tzinfo=None))
-      labels.append(self.timestamps[-1].replace(tzinfo=None))
-      ax2.set_xlim(0, len(self.timestamps))
-      ax2.set_xticklabels(labels, rotation=30, horizontalalignment="right")
+      # # Setup second subplot and x axis
+      # ax2.axhline(0, color="black")
+      # ax2.set_xlabel("Timestamp")
+      # ax2.set_xticks(np.arange(len(self.timestamps)), minor=True)
+      # minorPeriod = int(np.ceil(len(self.timestamps) / 60))
+      # ax1.xaxis.set_minor_locator(pyplot.MultipleLocator(minorPeriod))
+      # majorPeriod = minorPeriod * 5
+      # ax1.xaxis.set_major_locator(pyplot.MultipleLocator(majorPeriod))
+      # labels = ["HIDDEN"]
+      # for a in self.timestamps[0::majorPeriod]:
+      #   labels.append(a.replace(tzinfo=None))
+      # labels.append(self.timestamps[-1].replace(tzinfo=None))
+      # ax2.set_xlim(0, len(self.timestamps))
+      # ax2.set_xticklabels(labels, rotation=30, horizontalalignment="right")
 
-      # Plot on second subplot
-      ax2.set_ylabel("Transaction Profit")
-      profitsIndex = []
+      # # Plot on second subplot
+      # ax2.set_ylabel("Transaction Profit")
+      # profitsIndex = []
       profits = []
-      prevProfit = 0
-      for i in range(len(self.timestamps)):
-        profit = self.securitiesProfit[symbol][i]
-        if (profit - prevProfit) != 0:
-          profits.append(profit - prevProfit)
-          profitsIndex.append(i)
-        prevProfit = profit
-      profitColor = ["r" if i < 0 else "g" for i in profits]
-      ax2.scatter(profitsIndex, profits, color=profitColor)
+      # prevProfit = 0
+      # for i in range(len(self.timestamps)):
+      #   profit = self.securitiesProfit[symbol][i]
+      #   if (profit - prevProfit) != 0:
+      #     profits.append(profit - prevProfit)
+      #     profitsIndex.append(i)
+      #   prevProfit = profit
+      # profitColor = ["r" if i < 0 else "g" for i in profits]
+      # ax2.scatter(profitsIndex, profits, color=profitColor)
     else:
       # Plot on first subplot
       ax1.axhline(self.initialCapital, color="black")
       ax1.set_ylabel("Closing Value ($)")
-      ax1.plot(self.closingValue)
+      ax1.plot(self.reports[-1]["close"])
 
       # Setup second subplot and x axis
       ax2.axhline(0, color="black")
@@ -295,7 +319,7 @@ class Simulation:
 
       # Plot on second subplot
       ax2.set_ylabel("Daily Return (%)")
-      ax2.plot(self.dailyReturn)
+      ax2.plot(self.reports[-1]["daily"])
 
     ax1.grid(b=True, which="both")
     ax2.grid(b=True, which="both")

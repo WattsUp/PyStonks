@@ -6,6 +6,7 @@ if sys.version_info[0] != 3 or sys.version_info[1] < 6:
   sys.exit(1)
 
 import numpy as np
+from . import security
 
 class Order:
   ## Initialize the order
@@ -31,11 +32,16 @@ class Order:
 
 class Portfolio:
   ## Initialize the portfolio
-  #  @param dictionary of security objects
+  #  @param api alpaca object
+  #  @param startDate of the simulation
   #  @param initialCapital to start the wallet off with
   #  @param orderCallback function when an order is updated
-  def __init__(self, securities, initialCapital, orderCallback):
-    self.securities = securities
+  def __init__(self, api, startDate, initialCapital, orderCallback):
+    self.securities = {}
+    for symbol, data in api.securityData.items():
+      self.securities[symbol] = security.Security(
+        symbol, data[0], data[1], startDate)
+
     self.cash = np.float64(initialCapital)
     self.orders = []
     self.orderCallback = orderCallback

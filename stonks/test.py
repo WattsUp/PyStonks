@@ -17,8 +17,7 @@ def quickTest(symbol=None):
   toDate = datetime.date.today().replace(day=1) - datetime.timedelta(days=1)
   fromDate = toDate.replace(year=(toDate.year - 1))
   sim = simulation.Simulation(fromDate, toDate, symbol=symbol)
-  sim.setup(st.strategy)
-  print("Elapsed test duration: {}".format(sim.run()))
+  sim.run(st.strategy)
   sim.printReport()
   # sim.plot(symbol=symbol)
 
@@ -35,7 +34,7 @@ def reloadAndTest(sim):
 ## Main function
 def main():
   st.strategy.silent = True
-  quickTest()
+  quickTest(symbol="TSLA")
 
 
 if __name__ == "__main__":

@@ -22,12 +22,18 @@ class Candles:
   ## Initialize candles object, accessor of candle data
   #  @param dataFrame pandas.DataFrame of OHLCV data with timestamp indexing
   #  @param minute True if dataFrame is minute data, False if dataFrame is daily data
-  def __init__(self, dataFrame, minute=True):
-    self.dataFrame = dataFrame
+  def __init__(self, dataFrame, minute=True, startDate=None):
+    self.index = dataFrame.index
     self.values = dataFrame.values
     self.minute = minute
     self.currentIndex = 0
     self.firstOpen = dataFrame.loc[dataFrame["open"].first_valid_index()].open
+    if startDate:
+      if not self.minute:
+        startDate = startDate.replace(hour=0, minute=0)
+      self.currentIndex = self.index.get_loc(startDate)
+    else:
+      self.currentIndex = 0
 
   ## Advance the currentIndex
   def _next(self):
@@ -56,7 +62,7 @@ class Candles:
     if startDate:
       if not self.minute:
         startDate = startDate.replace(hour=0, minute=0)
-      self.currentIndex = self.dataFrame.index.get_loc(startDate)
+      self.currentIndex = self.index.get_loc(startDate)
     else:
       self.currentIndex = 0
 
@@ -65,22 +71,13 @@ class Security:
   #  @param symbol name of stored symbol
   #  @param minuteData pandas.DataFrame of minute candle data
   #  @param dayData pandas.DataFrame of daily candle data
-  def __init__(self, symbol, minuteData, dayData):
+  def __init__(self, symbol, minuteData, dayData, startDate):
     self.symbol = symbol
-    self.minute = Candles(minuteData, minute=True)
-    self.day = Candles(dayData, minute=False)
+    self.minute = Candles(minuteData, minute=True, startDate=startDate)
+    self.day = Candles(dayData, minute=False, startDate=startDate)
     self.shares = 0
     self.cost = 0
     self.lifeTimeProfit = 0
-
-  ## Setup the initial conditions of the simulation
-  #  @param shares to start the security with
-  def setup(self, shares=0, startDate=None):
-    self.shares = shares
-    self.cost = 0
-    self.lifeTimeProfit = 0
-    self.minute.reset(startDate)
-    self.day.reset(startDate)
 
   ## Advance the current index of the minute candles
   def _nextMinute(self):

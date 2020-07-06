@@ -13,7 +13,6 @@ import numpy as np
 import os
 import pandas as pd
 import pytz
-from . import security
 
 est = pytz.timezone("America/New_York")
 
@@ -21,8 +20,11 @@ class Alpaca:
   WATCHLIST_NAME = "stonks list"
 
   ## Setup trading environment
+  #  @param fromDate datetime.date start date (inclusive)
+  #  @param toDate datetime.date end date (inclusive)
   #  @param paper True will execute on paper trades, false will use a live account
-  def __init__(self, paper=True):
+  def __init__(self, fromDate, toDate=datetime.date.today(),
+               symbol=None, paper=True):
     ALPACA_API_KEY = os.getenv("ALPACA_API_KEY_PAPER")
     ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY_PAPER")
     base_url = "https://paper-api.alpaca.markets"
@@ -38,9 +40,25 @@ class Alpaca:
     self.nextOpen = None
     self.nextClose = None
     self.open = None
+    self.securityData = {}
+
+    calendar = self.getCalendar(fromDate, toDate)
+    timestamps = self.getTimestamps(calendar)
+    if symbol:
+      symbols = [symbol]
+    else:
+      symbols = self.getSymbols()
+    for symbol in symbols:
+      security = self.loadSymbol(symbol, calendar, timestamps)
+      if security:
+        self.securityData[symbol] = security
+    if len(self.securityData.keys()) == 0:
+      print("No symbols loaded")
+      sys.exit(1)
 
   ## Add symbols to the watchlist
   #  @param symbols list of symbols to add
+
   def addSymbols(self, symbols):
     watchlists = self.api.get_watchlists()
     watchlistID = None
@@ -218,7 +236,7 @@ class Alpaca:
   #  @param symbol to fetch data for
   #  @param calendar pandas.DataFrame date indexed, open & close times
   #  @param timestamps list of datetime objects for each minute market is open
-  #  @return Data
+  #  @return (candlesMinutes, candlesDays) both pandas.dataframe
   def loadSymbol(self, symbol, calendar, timestamps):
     print("Loading {:>5}".format(symbol), end="", flush=True)
     fromDate = calendar.index[0]
@@ -250,7 +268,7 @@ class Alpaca:
 
     print("complete", flush=True)
 
-    return security.Security(symbol, candlesMinutes, candlesDays)
+    return (candlesMinutes, candlesDays)
 
   ## Get the trading calendar between two dates
   #  @param fromDate datetime.date start date (inclusive)
