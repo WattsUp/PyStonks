@@ -74,7 +74,8 @@ class Simulation:
     for index, row in calendar.iterrows():
       weekNumber = index.isocalendar()[1]
       if weekNumber != lastWeekNumber:
-        # print("New week", index)
+        dateMonday = index - datetime.timedelta(days=index.weekday())
+        strategy.nextWeek(self, dateMonday)
         lastWeekNumber = weekNumber
       timestamps = self.api.getTimestamps(row)
       for timestamp in timestamps:
@@ -116,6 +117,7 @@ class Simulation:
       report["close"] = closingValue
       report["daily"] = dailyReturn
     report["testCase"] = testCase
+    report["params"] = strategy.params
 
     avgDailyReturn = np.mean(dailyReturn)
     stddev = np.std(dailyReturn)
@@ -161,6 +163,8 @@ class Simulation:
       strategy.params[param] = paramCombination[i]
       i += 1
     testCase += "]"
+    strategy.silent = True
+    strategy.walkForward = False
     report = self.run(
         strategy,
         calendar=calendar,
@@ -181,7 +185,6 @@ class Simulation:
   #  @return list of top 5 reports sorted by targetMetric
   def optimize(self, strategy, calendar=None,
                targetMetric="sortino", progressBar=True, initialSecurities=None):
-    strategy.silent = True
     if not bool(strategy.paramsAdj):
       print("No adjustable parameters, add ranges to 'paramsAdj'")
       return

@@ -6,6 +6,7 @@ if sys.version_info[0] != 3 or sys.version_info[1] < 6:
   sys.exit(1)
 
 from . import portfolio
+import datetime
 
 class Strategy:
   params = {}
@@ -16,6 +17,7 @@ class Strategy:
     self.portfolio = None
     self.timestamp = None
     self.silent = False
+    self.walkForward = True
 
   ## Set the securities used by the strategy
   #  @param api alpaca object
@@ -32,6 +34,33 @@ class Strategy:
   ## Operate on the next minute data, override this
   def nextMinute(self):
     pass
+
+  ## Operate on the next week data, default is to perform a walk-forward
+  #  optimization: optimize for the past week's data, use that for this week
+  #  @param sim simulation object to use
+  #  @param dateMonday of the current week
+  def nextWeek(self, sim, dateMonday):
+    if not self.walkForward:
+      return
+    # Get trading days of last week
+    calendar = sim.api.getCalendar(
+        dateMonday - datetime.timedelta(weeks=2),
+        dateMonday - datetime.timedelta(days=1))
+
+    # Setup simulation with same assets as currently held
+    initialSecurities = {"cash": self.portfolio.cash}
+    for symbol, security in self.portfolio.securities.items():
+      initialSecurities[symbol] = security.shares
+
+    # Optimize and use the highest one for this week
+    sortedReports = sim.optimize(
+        strategy,
+        calendar=calendar,
+        progressBar=False,
+        initialSecurities=initialSecurities,
+        targetMetric="profit")
+    print("Walk-forward results", sortedReports[0]["testCase"])
+    self.params = sortedReports[0]["params"]
 
   ## Log a message
   #  @param msg message to log
@@ -62,8 +91,8 @@ class Strategy:
 # Proceed with the best algorithm it should have used last week
 
 class Crossover(Strategy):
-  params = {"long": 20, "short": 5}
-  paramsAdj = {"long": range(5, 50, 1), "short": range(2, 10, 1)}
+  params = {"long": 9, "short": 2}
+  paramsAdj = {"long": range(5, 20, 1), "short": range(1, 6, 1)}
 
   def nextMinute(self):
     if len(self.portfolio.orders) != 0:
@@ -95,5 +124,5 @@ try:
   importlib.reload(customStrategy)
   strategy = customStrategy.strategy
 except ImportError:
-  print("Using default crossover strategy")
+  # print("Using default crossover strategy")
   strategy = Crossover()
