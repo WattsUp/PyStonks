@@ -29,12 +29,7 @@ class Simulation:
     preStartFromDate = fromDate - datetime.timedelta(days=preStart)
     self.api = alpaca.Alpaca(preStartFromDate, toDate=toDate, symbol=symbol)
     self.initialCapital = initialCapital
-    # self.securities = {}
-    # self.securitiesPrice = {}
-    # self.securitiesShares = {}
-    # self.securitiesProfit = {}
     self.calendar = self.api.getCalendar(fromDate, toDate)
-    self.timestamps = []
     self.dates = []
     self.reports = []
 
@@ -70,6 +65,16 @@ class Simulation:
     i = 0
     lastWeekNumber = None
 
+    report = {}
+    report["timestamps"] = []
+    report["securityPrices"] = {}
+    report["securityShares"] = {}
+    report["securityProfits"] = {}
+    for symbol in strategy.portfolio.securities.keys():
+      report["securityPrices"][symbol] = []
+      report["securityShares"][symbol] = []
+      report["securityProfits"][symbol] = []
+
     start = datetime.datetime.now()
     for index, row in calendar.iterrows():
       weekNumber = index.isocalendar()[1]
@@ -84,15 +89,15 @@ class Simulation:
 
         strategy.nextMinute()
 
-        # if recordPlotStats:
-        #   self.timestamps.append(timestamp)
-        #   for security in self.securities.values():
-        #     self.securitiesPrice[security.symbol].append(
-        #       security.minute[0].close)
-        #     self.securitiesShares[security.symbol].append(
-        #       security.shares)
-        #     self.securitiesProfit[security.symbol].append(
-        #       security.lifeTimeProfit)
+        if recordPlotStats:
+          report["timestamps"].append(timestamp)
+          for security in strategy.portfolio.securities.values():
+            report["securityPrices"][security.symbol].append(
+              security.minute[0].close)
+            report["securityShares"][security.symbol].append(
+              security.shares)
+            report["securityProfits"][security.symbol].append(
+              security.lifeTimeProfit)
         strategy.portfolio._nextMinute()
 
       value = strategy.portfolio.value()
@@ -108,7 +113,6 @@ class Simulation:
       if i == 0 and progressBar:
         print(".", end="", flush=True)
 
-    report = {}
     report["duration"] = datetime.datetime.now() - start
     if progressBar:
       print("complete")
@@ -228,82 +232,87 @@ class Simulation:
     print("Closing profit: ${:10.2f} = {:.2f}% = {:.2f}%(yr)\n".format(
         report["profit"], report["profit-percent"] * 100, report["profit-percent-yr"] * 100))
 
-  def plot(self, symbol=None):
+  ## Plot a report, either portfolio value or a specific symbol with buy/sell markers
+  #  @param report to plot, None will grab the most recent
+  #  @param symbol to plot, None will plot the portfolio value
+  def plot(self, report=None, symbol=None):
     fig, (ax1, ax2) = pyplot.subplots(2, 1, sharex=True)
+    if report is None:
+      report = self.reports[-1]
     if symbol:
-      # # Plot on first subplot
-      # ax1.set_ylabel("Closing Price ($)")
-      # ax1.plot(
-      #     self.securitiesPrice[symbol],
-      #     color="black",
-      #     zorder=0,
-      #     label=symbol)
-      # bottom, top = ax1.get_ylim()
-      # offset = (top - bottom) / 20
-      # # Buy and sell markers
-      # tradeBuyIndex = []
-      # tradeSellIndex = []
-      # tradesBuy = []
-      # tradesSell = []
-      # prevShares = 0
-      # for i in range(len(self.timestamps)):
-      #   shares = self.securitiesShares[symbol][i]
-      #   if (shares - prevShares) > 0:
-      #     tradesBuy.append(self.securitiesPrice[symbol][i] - offset)
-      #     tradeBuyIndex.append(i)
-      #   elif (shares - prevShares) < 0:
-      #     tradesSell.append(self.securitiesPrice[symbol][i] + offset)
-      #     tradeSellIndex.append(i)
-      #   prevShares = shares
-      # ax1.scatter(
-      #     tradeBuyIndex,
-      #     tradesBuy,
-      #     color="g",
-      #     marker="^",
-      #     zorder=1,
-      #     label="buy")
-      # ax1.scatter(
-      #     tradeSellIndex,
-      #     tradesSell,
-      #     color="r",
-      #     marker="v",
-      #     zorder=2,
-      #     label="sell")
-      # ax1.legend()
+      # Plot on first subplot
+      ax1.set_ylabel("Closing Price ($)")
+      ax1.plot(
+          report["securityPrices"][symbol],
+          color="black",
+          zorder=0,
+          label=symbol)
+      bottom, top = ax1.get_ylim()
+      offset = (top - bottom) / 20
+      # Buy and sell markers
+      tradeBuyIndex = []
+      tradeSellIndex = []
+      tradesBuy = []
+      tradesSell = []
+      prevShares = 0
+      for i in range(len(report["timestamps"])):
+        shares = report["securityShares"][symbol][i]
+        if (shares - prevShares) > 0:
+          tradesBuy.append(report["securityPrices"][symbol][i] - offset)
+          tradeBuyIndex.append(i)
+        elif (shares - prevShares) < 0:
+          tradesSell.append(report["securityPrices"][symbol][i] + offset)
+          tradeSellIndex.append(i)
+        prevShares = shares
+      ax1.scatter(
+          tradeBuyIndex,
+          tradesBuy,
+          color="g",
+          marker="^",
+          zorder=1,
+          label="buy")
+      ax1.scatter(
+          tradeSellIndex,
+          tradesSell,
+          color="r",
+          marker="v",
+          zorder=2,
+          label="sell")
+      ax1.legend()
 
-      # # Setup second subplot and x axis
-      # ax2.axhline(0, color="black")
-      # ax2.set_xlabel("Timestamp")
-      # ax2.set_xticks(np.arange(len(self.timestamps)), minor=True)
-      # minorPeriod = int(np.ceil(len(self.timestamps) / 60))
-      # ax1.xaxis.set_minor_locator(pyplot.MultipleLocator(minorPeriod))
-      # majorPeriod = minorPeriod * 5
-      # ax1.xaxis.set_major_locator(pyplot.MultipleLocator(majorPeriod))
-      # labels = ["HIDDEN"]
-      # for a in self.timestamps[0::majorPeriod]:
-      #   labels.append(a.replace(tzinfo=None))
-      # labels.append(self.timestamps[-1].replace(tzinfo=None))
-      # ax2.set_xlim(0, len(self.timestamps))
-      # ax2.set_xticklabels(labels, rotation=30, horizontalalignment="right")
+      # Setup second subplot and x axis
+      ax2.axhline(0, color="black")
+      ax2.set_xlabel("Timestamp")
+      ax2.set_xticks(np.arange(len(report["timestamps"])), minor=True)
+      minorPeriod = int(np.ceil(len(report["timestamps"]) / 60))
+      ax1.xaxis.set_minor_locator(pyplot.MultipleLocator(minorPeriod))
+      majorPeriod = minorPeriod * 5
+      ax1.xaxis.set_major_locator(pyplot.MultipleLocator(majorPeriod))
+      labels = ["HIDDEN"]
+      for a in report["timestamps"][0::majorPeriod]:
+        labels.append(a.replace(tzinfo=None))
+      labels.append(report["timestamps"][-1].replace(tzinfo=None))
+      ax2.set_xlim(0, len(report["timestamps"]))
+      ax2.set_xticklabels(labels, rotation=30, horizontalalignment="right")
 
-      # # Plot on second subplot
-      # ax2.set_ylabel("Transaction Profit")
-      # profitsIndex = []
+      # Plot on second subplot
+      ax2.set_ylabel("Transaction Profit")
+      profitsIndex = []
       profits = []
-      # prevProfit = 0
-      # for i in range(len(self.timestamps)):
-      #   profit = self.securitiesProfit[symbol][i]
-      #   if (profit - prevProfit) != 0:
-      #     profits.append(profit - prevProfit)
-      #     profitsIndex.append(i)
-      #   prevProfit = profit
-      # profitColor = ["r" if i < 0 else "g" for i in profits]
-      # ax2.scatter(profitsIndex, profits, color=profitColor)
+      prevProfit = 0
+      for i in range(len(report["timestamps"])):
+        profit = report["securityProfits"][symbol][i]
+        if (profit - prevProfit) != 0:
+          profits.append(profit - prevProfit)
+          profitsIndex.append(i)
+        prevProfit = profit
+      profitColor = ["r" if i < 0 else "g" for i in profits]
+      ax2.scatter(profitsIndex, profits, color=profitColor)
     else:
       # Plot on first subplot
       ax1.axhline(self.initialCapital, color="black")
       ax1.set_ylabel("Closing Value ($)")
-      ax1.plot(self.reports[-1]["close"])
+      ax1.plot(report["close"])
 
       # Setup second subplot and x axis
       ax2.axhline(0, color="black")

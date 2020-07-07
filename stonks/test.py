@@ -11,15 +11,15 @@ from . import simulation
 from . import strategy as st
 
 ## Setup a test over the past year, run, print report, and plot portfolio
-#  @param strategy to test
 #  @param symbol of strategy to test on, None for all from watchlist
 def quickTest(symbol=None):
   toDate = datetime.date.today().replace(day=1) - datetime.timedelta(days=1)
   fromDate = toDate.replace(year=(toDate.year - 1))
   sim = simulation.Simulation(fromDate, toDate, symbol=symbol)
+  # st.strategy.walkForward = False
   sim.run(st.strategy)
   sim.printReport()
-  # sim.plot(symbol=symbol)
+  sim.plot(symbol=symbol)
 
 ## Reload the strategy module and run a test, primarily for interactive development
 #  @param sim simulation object
