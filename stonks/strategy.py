@@ -31,6 +31,11 @@ class Strategy:
       for symbol, shares in initialSecurities.items():
         self.portfolio.securities[symbol].shares = shares
 
+  ## Setup the strategy's portfolio to match the live account 
+  #  @param api alpaca object
+  def _setupLive(self, api):
+    self.portfolio = portfolio.PortfolioLive(api)
+
   ## Operate on the next minute data, override this
   def nextMinute(self):
     pass

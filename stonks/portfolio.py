@@ -110,3 +110,8 @@ class Portfolio:
     for security in self.securities.values():
       value += security.value()
     return value
+
+class PortfolioLive(Portfolio):
+  def __init__(self, api):
+    print("live portfolio")
+    # TODO fetch cash and shares from api

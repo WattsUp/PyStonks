@@ -6,6 +6,7 @@ if sys.version_info[0] != 3 or sys.version_info[1] < 6:
   sys.exit(1)
 
 import alpaca_trade_api
+import asyncio
 import calendar as cal
 import datetime
 import feather
@@ -24,7 +25,7 @@ class Alpaca:
   #  @param toDate datetime.date end date (inclusive)
   #  @param paper True will execute on paper trades, false will use a live account
   def __init__(self, fromDate, toDate=datetime.date.today(),
-               symbol=None, paper=True):
+               symbol=None, paper=True, live=False):
     ALPACA_API_KEY = os.getenv("ALPACA_API_KEY_PAPER")
     ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY_PAPER")
     base_url = "https://paper-api.alpaca.markets"
@@ -49,12 +50,90 @@ class Alpaca:
     else:
       symbols = self.getSymbols()
     for symbol in symbols:
+      # TODO make loading a thread pool
       security = self.loadSymbol(symbol, calendar, timestamps)
       if security:
         self.securityData[symbol] = security
     if len(self.securityData.keys()) == 0:
       print("No symbols loaded")
       sys.exit(1)
+
+    if live:
+      self.conn = alpaca_trade_api.StreamConn(
+          ALPACA_API_KEY, ALPACA_SECRET_KEY, base_url, data_stream="polygon")
+      self.conn.register(r"AM.*", self._onMinuteBars)
+      self.conn.register(r"trade_updates", self._onTradeUpdates)
+      self.conn.register(r"account_updates", self._onAccountUpdates)
+      self.conn.register(r".*", self._onData)
+      self.liveChannels = ["trade_updates", "account_updates"]
+      for symbol in symbols:
+        self.liveChannels.append("AM." + symbol)
+
+  ## On push update of aggregate minute data
+  #  @param conn connection object
+  #  @param channel notification came in from
+  #  @param bar aggregate data
+  async def _onMinuteBars(self, conn, channel, bar):
+    print("  bars", bar.symbol, datetime.datetime.now())
+
+  ## On push update of trade updates
+  #  @param conn connection object
+  #  @param channel notification came in from
+  #  @param trade data
+  async def _onTradeUpdates(self, conn, channel, trade):
+    print("  trade", trade, datetime.datetime.now())
+
+  ## On push update of account updates
+  #  @param conn connection object
+  #  @param channel notification came in from
+  #  @param account data
+  async def _onAccountUpdates(self, conn, channel, account):
+    print("  account", account, datetime.datetime.now())
+
+  ## On push update of other information that is not a data stream
+  #  @param conn connection object
+  #  @param channel notification came in from
+  #  @param data
+  async def _onData(self, conn, channel, data):
+    if not (channel in ('AM', 'Q', 'A', 'T')):
+      print("onData", channel, data)
+
+  ## Wrapper to run a periodic function every minute, at 5 seconds after 0
+  async def _coroutine(self):
+    minuteProcessed = False
+    lastMinute = None
+    while True:
+      now = datetime.datetime.now()
+      if now.minute != lastMinute:
+        minuteProcessed = False
+      lastMinute = now.minute
+
+      if not minuteProcessed and now.second >= 5:
+        
+        if self.isOpen():
+          status = "Open"
+          self.liveStrategy.timestamp = now
+          # self.liveStrategy.portfolio._nextMinute(create=True)
+          self.liveStrategy.nextMinute()
+          # Run strategy
+        else:
+          status = "Closed"
+
+        print("{} {:6} ${:10.2f}".format(now.isoformat(), status, self.liveStrategy.portfolio.value()))
+
+        minuteProcessed = True
+      await asyncio.sleep(1)
+
+  ## Run alpaca live streaming
+  #  @param strategy to operate on live data
+  def runLive(self, strategy):
+    if self.conn is None:
+      print("Must setup alpaca with live=True")
+      sys.exit(1)
+    strategy._setupLive(self)
+    asyncio.ensure_future(self._coroutine())
+    self.liveStrategy = strategy
+    self.conn.run(self.liveChannels)
 
   ## Add symbols to the watchlist
   #  @param symbols list of symbols to add
@@ -270,10 +349,29 @@ class Alpaca:
 
     return (candlesMinutes, candlesDays)
 
+  def updateSecurities(self):
+    today = datetime.date.today().isoformat()
+    for symbol, (candlesMinutes, candlesDays) in self.securityData.items():
+      response = self.api.polygon.historic_agg_v2(
+          symbol, 1, "minute", today, today).df
+      response.index = response.index.tz_convert(est)
+      candlesMinutes.update(response)
+      candlesMinutes = pd.concat([candlesMinutes, response])
+      candlesMinutes = candlesMinutes[~candlesMinutes.index.duplicated()]
+
+      response = self.api.polygon.historic_agg_v2(
+          symbol, 1, "day", today, today).df
+      response.index = response.index.tz_convert(est)
+      candlesDays.update(response)
+      candlesDays = pd.concat([candlesDays, response])
+      candlesDays = candlesDays[~candlesDays.index.duplicated()]
+      self.securityData[symbol] = (candlesMinutes, candlesDays)
+
   ## Get the trading calendar between two dates
   #  @param fromDate datetime.date start date (inclusive)
   #  @param toDate datetime.date end date (inclusive)
   #  @return pandas.DataFrame date indexed, open & close times
+
   def getCalendar(self, fromDate, toDate=datetime.date.today()):
     toDate = min(toDate, datetime.date.today())
     calendar = self.api.get_calendar(

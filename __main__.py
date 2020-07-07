@@ -17,6 +17,7 @@ if __name__ == "__main__":
     test.main()
   elif mode == "add":
     from stonks import alpaca
+    # TODO fix this
     api = alpaca.Alpaca()
     api.addSymbols(sys.argv[2:])
   elif mode == "optimize":
@@ -27,6 +28,10 @@ if __name__ == "__main__":
     print("Live Trading")
     from stonks import live
     live.main()
+  elif mode == "monitor":
+    print("Monitor a live trading account")
+    from stonks import monitor
+    monitor.main()
   else:
     print("Perform or test a stock trading algorithm")
     print("Follow with mode to execute algorithm")

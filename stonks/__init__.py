@@ -1,1 +1,1 @@
-__all__ = ["simulation", "strategy", "alpaca", "test", "optimize", "live"]
+__all__ = ["simulation", "strategy", "alpaca", "test", "optimize", "live", "monitor"]

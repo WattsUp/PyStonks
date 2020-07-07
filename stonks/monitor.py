@@ -11,10 +11,8 @@ import datetime
 
 ## Main function
 def main():
-  preStart = 50
-  preStartFromDate = datetime.date.today() - datetime.timedelta(days=preStart)
-  api = alpaca.Alpaca(preStartFromDate, live=True)
-  api.runLive(st.strategy)
+  api = alpaca.Alpaca(datetime.date.today(), live=True)
+  api.runLive(st.Strategy())
 
 
 if __name__ == "__main__":
