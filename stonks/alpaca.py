@@ -8,6 +8,7 @@ if sys.version_info[0] != 3 or sys.version_info[1] < 6:
 import alpaca_trade_api
 import asyncio
 import calendar as cal
+from colorama import Fore, Style, init as ColoramaInit
 import concurrent.futures
 import datetime
 import feather
@@ -16,6 +17,7 @@ import os
 import pandas as pd
 import pytz
 
+ColoramaInit(autoreset=True)
 est = pytz.timezone("America/New_York")
 
 class Alpaca:
@@ -127,12 +129,15 @@ class Alpaca:
         currentValue = self.liveStrategy.portfolio.value()
         dailyProfit = currentValue - self.liveLastEquity
         dailyProfitPercent = dailyProfit / currentValue * 100
-        print("{} {:6} ${:10.2f} ${:6.2f}={:5.2f}%".format(
-            now.isoformat(),
-            status,
-            currentValue,
-            dailyProfit,
-            dailyProfitPercent))
+        color = Fore.WHITE
+        if dailyProfit > 0:
+          color = Fore.GREEN
+        elif dailyProfit < 0:
+          color = Fore.RED
+        print(f"{now.isoformat()} "
+              f"${status:6} "
+              f"${currentValue:10.2f} "
+              f"{color}${dailyProfit:8.2f} {dailyProfitPercent:8.3f}%")
 
         minuteProcessed = True
       await asyncio.sleep(1)
