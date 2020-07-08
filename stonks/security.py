@@ -22,18 +22,14 @@ class Candles:
   ## Initialize candles object, accessor of candle data
   #  @param dataFrame pandas.DataFrame of OHLCV data with timestamp indexing
   #  @param minute True if dataFrame is minute data, False if dataFrame is daily data
+  #  @param startDate to set currentIndex to, None will go to end of list (for live)
   def __init__(self, dataFrame, minute=True, startDate=None):
     self.index = dataFrame.index
     self.values = dataFrame.values
     self.minute = minute
     self.currentIndex = 0
     self.firstOpen = dataFrame.loc[dataFrame["open"].first_valid_index()].open
-    if startDate:
-      if not self.minute:
-        startDate = startDate.replace(hour=0, minute=0)
-      self.currentIndex = self.index.get_loc(startDate)
-    else:
-      self.currentIndex = 0
+    self.reset(startDate)
 
   ## Advance the currentIndex
   def _next(self):
@@ -57,20 +53,27 @@ class Candles:
     return OHLCV(self.values[index])
 
   ## Reset the current index to the start date or 0
-  #  @param startDate to set currentIndex to, None for index of 0
+  #  @param startDate to set currentIndex to, None will go to end of list (for live)
   def reset(self, startDate=None):
     if startDate:
       if not self.minute:
         startDate = startDate.replace(hour=0, minute=0)
       self.currentIndex = self.index.get_loc(startDate)
     else:
-      self.currentIndex = 0
+      self.currentIndex = len(self.index) - 1
+  
+  def _append(self, bar):
+    if bar is None:
+      previousClose = self.values[-1][3]
+      bar = [previousClose, previousClose, previousClose, previousClose, 0]
+    self.values = np.append(self.values, [bar], axis=0)
 
 class Security:
   ## Initialize Security object collection of minute and daily candle data
   #  @param symbol name of stored symbol
   #  @param minuteData pandas.DataFrame of minute candle data
   #  @param dayData pandas.DataFrame of daily candle data
+  #  @param startDate to set currentIndex to, None will go to end of list (for live)
   def __init__(self, symbol, minuteData, dayData, startDate):
     self.symbol = symbol
     self.minute = Candles(minuteData, minute=True, startDate=startDate)
@@ -78,6 +81,9 @@ class Security:
     self.shares = 0
     self.cost = 0
     self.lifeTimeProfit = 0
+
+  def _update(self, latestBar):
+    self.minute._append(latestBar)
 
   ## Advance the current index of the minute candles
   def _nextMinute(self):
@@ -93,6 +99,7 @@ class Security:
     try:
       return self.shares * self.minute[0].close
     except IndexError:
+      print("end of list")
       return self.shares * self.minute[-1].close
 
   ## Trade shares of the security

@@ -35,6 +35,8 @@ class Strategy:
   #  @param api alpaca object
   def _setupLive(self, api):
     self.portfolio = portfolio.PortfolioLive(api)
+    for symbol, shares in api.getLivePositions().items():
+      self.portfolio.securities[symbol].shares = shares
 
   ## Operate on the next minute data, override this
   def nextMinute(self):

@@ -5,6 +5,7 @@ if sys.version_info[0] != 3 or sys.version_info[1] < 6:
   print("This script requires Python version >=3.6")
   sys.exit(1)
 
+import datetime
 import numpy as np
 from . import security
 
@@ -33,7 +34,7 @@ class Order:
 class Portfolio:
   ## Initialize the portfolio
   #  @param api alpaca object
-  #  @param startDate of the simulation
+  #  @param startDate of the simulation, None will go to the latest data
   #  @param initialCapital to start the wallet off with
   #  @param orderCallback function when an order is updated
   def __init__(self, api, startDate, initialCapital, orderCallback):
@@ -55,6 +56,13 @@ class Portfolio:
   def _marketClose(self):
     for security in self.securities.values():
       security._nextDay()
+
+  def _update(self, securityDataUpdate):
+    for symbol, security in self.securities.items():
+      if symbol in securityDataUpdate.keys():
+        security._update(securityDataUpdate[symbol])
+      else:
+        security._update(None)
 
   ## Process orders, execute on the opening price
   def _processOrders(self):
@@ -85,7 +93,6 @@ class Portfolio:
   #  @param security object to buy
   #  @param shares number of shares, None to calculate from value
   #  @param value value of shares to buy (based on current minute closing price)
-
   def buy(self, security, shares=None, value=None):
     if not shares:
       shares = value / security.minute[0].close
@@ -112,6 +119,25 @@ class Portfolio:
     return value
 
 class PortfolioLive(Portfolio):
+
+  ## Initialize a portfolio object using cash and holdings from the live account
+  #  @param api alpaca object
   def __init__(self, api):
-    print("live portfolio")
-    # TODO fetch cash and shares from api
+    super().__init__(api, None, api.getLiveCash(), None)
+    self.api = api
+
+  ## Buy shares of a security
+  #  @param security object to buy
+  #  @param shares number of shares, None to calculate from value
+  #  @param value value of shares to buy (based on current minute closing price)
+  def buy(self, security, shares=None, value=None):
+    #TODO call submit order of api
+    print("Live portfolio buy", security.symbol)
+
+  ## Sell shares of a security
+  #  @param security object to sell
+  #  @param shares number of shares, None to calculate from value
+  #  @param value value of shares to sell (based on current minute closing price)
+  def sell(self, security, shares=None, value=None):
+    #TODO call submit order of api
+    print("Live portfolio sell", security.symbol)

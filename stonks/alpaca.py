@@ -8,6 +8,7 @@ if sys.version_info[0] != 3 or sys.version_info[1] < 6:
 import alpaca_trade_api
 import asyncio
 import calendar as cal
+import concurrent.futures
 import datetime
 import feather
 import numpy as np
@@ -49,11 +50,10 @@ class Alpaca:
       symbols = [symbol]
     else:
       symbols = self.getSymbols()
-    for symbol in symbols:
-      # TODO make loading a thread pool
-      security = self.loadSymbol(symbol, calendar, timestamps)
-      if security:
-        self.securityData[symbol] = security
+      
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+      for symbol in symbols:
+        executor.submit(self.loadSymbol, symbol, calendar, timestamps)
     if len(self.securityData.keys()) == 0:
       print("No symbols loaded")
       sys.exit(1)
@@ -74,7 +74,8 @@ class Alpaca:
   #  @param channel notification came in from
   #  @param bar aggregate data
   async def _onMinuteBars(self, conn, channel, bar):
-    print("  bars", bar.symbol, datetime.datetime.now())
+    data = [bar.open, bar.high, bar.low, bar.close, bar.volume]
+    self.securityDataUpdate[bar.symbol] = data
 
   ## On push update of trade updates
   #  @param conn connection object
@@ -82,6 +83,7 @@ class Alpaca:
   #  @param trade data
   async def _onTradeUpdates(self, conn, channel, trade):
     print("  trade", trade, datetime.datetime.now())
+    # TODO update portfolio order book
 
   ## On push update of account updates
   #  @param conn connection object
@@ -89,37 +91,48 @@ class Alpaca:
   #  @param account data
   async def _onAccountUpdates(self, conn, channel, account):
     print("  account", account, datetime.datetime.now())
+    # TODO update cash (deposits/withdrawals)
 
   ## On push update of other information that is not a data stream
   #  @param conn connection object
   #  @param channel notification came in from
   #  @param data
   async def _onData(self, conn, channel, data):
-    if not (channel in ('AM', 'Q', 'A', 'T')):
+    if not (channel in ("AM", "Q", "A", "T", "trade_updates",
+                        "status", "listening", "authorized")):
       print("onData", channel, data)
 
   ## Wrapper to run a periodic function every minute, at 5 seconds after 0
   async def _coroutine(self):
-    minuteProcessed = False
-    lastMinute = None
+    minuteProcessed = True
+    lastMinute = datetime.datetime.now().replace(microsecond=0).minute
     while True:
-      now = datetime.datetime.now()
+      now = datetime.datetime.now().replace(microsecond=0)
       if now.minute != lastMinute:
         minuteProcessed = False
       lastMinute = now.minute
 
       if not minuteProcessed and now.second >= 5:
-        
+        self.liveStrategy.portfolio._update(self.securityDataUpdate)
+        self.securityDataUpdate = {}
+        self.liveStrategy.portfolio._nextMinute()
+
         if self.isOpen():
           status = "Open"
           self.liveStrategy.timestamp = now
-          # self.liveStrategy.portfolio._nextMinute(create=True)
           self.liveStrategy.nextMinute()
-          # Run strategy
         else:
           status = "Closed"
 
-        print("{} {:6} ${:10.2f}".format(now.isoformat(), status, self.liveStrategy.portfolio.value()))
+        currentValue = self.liveStrategy.portfolio.value()
+        dailyProfit = currentValue - self.liveLastEquity
+        dailyProfitPercent = dailyProfit / currentValue * 100
+        print("{} {:6} ${:10.2f} ${:6.2f}={:5.2f}%".format(
+            now.isoformat(),
+            status,
+            currentValue,
+            dailyProfit,
+            dailyProfitPercent))
 
         minuteProcessed = True
       await asyncio.sleep(1)
@@ -132,12 +145,22 @@ class Alpaca:
       sys.exit(1)
     strategy._setupLive(self)
     asyncio.ensure_future(self._coroutine())
+    self.securityDataUpdate = {}
     self.liveStrategy = strategy
+    self.liveLastEquity = np.float64(self.api.get_account().last_equity)
     self.conn.run(self.liveChannels)
+
+  def getLiveCash(self):
+    return self.api.get_account().cash
+
+  def getLivePositions(self):
+    securities = {}
+    for position in self.api.list_positions():
+      securities[position.symbol] = np.float64(position.qty)
+    return securities
 
   ## Add symbols to the watchlist
   #  @param symbols list of symbols to add
-
   def addSymbols(self, symbols):
     watchlists = self.api.get_watchlists()
     watchlistID = None
@@ -317,7 +340,6 @@ class Alpaca:
   #  @param timestamps list of datetime objects for each minute market is open
   #  @return (candlesMinutes, candlesDays) both pandas.dataframe
   def loadSymbol(self, symbol, calendar, timestamps):
-    print("Loading {:>5}".format(symbol), end="", flush=True)
     fromDate = calendar.index[0]
     toDate = calendar.index[-1]
 
@@ -328,11 +350,10 @@ class Alpaca:
       candles = self._loadDayBars(symbol, start)
       candlesDays = pd.concat([candlesDays, candles])
       start = datetime.date(start.year + 1, 1, 1)
-      print(".", end="", flush=True)
     candlesDays = candlesDays.reindex(calendar.index)
-    if candlesDays.empty:
-      print("no data, before historic data")
-      return None
+    if candlesDays.empty or np.isnan(candlesDays["open"][0]):
+      print("{:5} no data, before historic data".format(symbol))
+      return
 
     # Get the monthly minute bar data for the contained months
     start = candlesDays["open"].first_valid_index().replace(day=1)
@@ -342,12 +363,11 @@ class Alpaca:
       candlesMinutes = pd.concat([candlesMinutes, candles])
       start = datetime.date(
         start.year + (start.month // 12), start.month % 12 + 1, 1)
-      print(".", end="", flush=True)
     candlesMinutes = candlesMinutes.reindex(timestamps)
 
-    print("complete", flush=True)
+    # print("{:5} loaded".format(symbol))
 
-    return (candlesMinutes, candlesDays)
+    self.securityData[symbol] = (candlesMinutes, candlesDays)
 
   def updateSecurities(self):
     today = datetime.date.today().isoformat()
@@ -416,7 +436,6 @@ class Alpaca:
   #  @return True if market is open, False otherwise
   def isOpen(self):
     if not self.nextOpen or not self.nextClose:
-      print("API fetch")
       clock = self.api.get_clock()
       self.nextOpen = clock.next_open
       self.nextClose = clock.next_close
@@ -427,7 +446,6 @@ class Alpaca:
     if self.open:
       # Previous check was open, is it closed now?
       if now >= self.nextClose:
-        print("API fetch")
         clock = self.api.get_clock()
         self.nextOpen = clock.next_open
         self.nextClose = clock.next_close
@@ -435,7 +453,6 @@ class Alpaca:
     else:
       # Previous check was closed, is it open now?
       if now >= self.nextOpen:
-        print("API fetch")
         clock = self.api.get_clock()
         self.nextOpen = clock.next_open
         self.nextClose = clock.next_close
