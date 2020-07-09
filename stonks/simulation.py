@@ -186,9 +186,10 @@ class Simulation:
   #  @param targetMetric to output value for
   #  @param progressBar will print a dot upon completing a test case
   #  @param initialSecurities to start the simulations with
+  #  @param singleThreaded will only use one thread and process to execute (saves memory)
   #  @return list of top 5 reports sorted by targetMetric
   def optimize(self, strategy, calendar=None,
-               targetMetric="sortino", progressBar=True, initialSecurities=None):
+               targetMetric="sortino", progressBar=True, initialSecurities=None, singleThreaded=False):
     if not bool(strategy.paramsAdj):
       print("No adjustable parameters, add ranges to 'paramsAdj'")
       return
@@ -196,21 +197,35 @@ class Simulation:
     self.reports = []
     for param in strategy.paramsAdj.values():
       paramsLists.append(list(param))
+    combinations = list(itertools.product(*paramsLists))
+    if progressBar:
+      print("Optimizing across {} combinations".format(len(combinations)))
 
     reports = []
-    with concurrent.futures.ProcessPoolExecutor() as executor:
-      futures = []
-      for combination in itertools.product(*paramsLists):
-        futures.append(
-            executor.submit(
-                self._optimizeRunner,
-                strategy,
-                calendar,
-                combination,
-                progressBar=progressBar,
-                initialSecurities=initialSecurities))
-      for future in concurrent.futures.as_completed(futures):
-        reports.append(future.result())
+    if singleThreaded:
+      walkForward = strategy.walkForward
+      for combination in combinations:
+        reports.append(self._optimizeRunner(
+            strategy,
+            calendar,
+            combination,
+            progressBar=progressBar,
+            initialSecurities=initialSecurities))
+      strategy.walkForward = walkForward
+    else:
+      with concurrent.futures.ProcessPoolExecutor() as executor:
+        futures = []
+        for combination in combinations:
+          futures.append(
+              executor.submit(
+                  self._optimizeRunner,
+                  strategy,
+                  calendar,
+                  combination,
+                  progressBar=progressBar,
+                  initialSecurities=initialSecurities))
+        for future in concurrent.futures.as_completed(futures):
+          reports.append(future.result())
 
     if progressBar:
       print("complete")

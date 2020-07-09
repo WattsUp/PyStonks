@@ -105,10 +105,10 @@ class Portfolio:
   def sell(self, security, shares=None, value=None):
     if not shares:
       shares = value / security.minute[0].close
-    shares = abs(np.floor(shares))
+    shares = min(security.shares, abs(np.floor(shares)))
     if shares == 0:
       return
-    self.orders.append(Order(security, shares))
+    self.orders.append(Order(security, -abs(shares)))
     self.orderCallback(self.orders[-1])
 
   ## Buy shares of a security

@@ -19,6 +19,7 @@ class Strategy:
     self.timestamp = None
     self.silent = False
     self.walkForward = True
+    self.singleThreaded = False
 
   ## Set the securities used by the strategy
   #  @param api alpaca object
@@ -68,7 +69,8 @@ class Strategy:
         calendar=calendar,
         progressBar=False,
         initialSecurities=initialSecurities,
-        targetMetric="profit")
+        targetMetric="profit",
+        singleThreaded=self.singleThreaded)
     print("Walk-forward results", sortedReports[0]["testCase"])
     self.params = sortedReports[0]["params"]
 

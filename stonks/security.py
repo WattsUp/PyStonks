@@ -45,6 +45,7 @@ class Candles:
       # The zero index is yesterday as today is not finished yet
       index = index - 1
     if index < 0:
+      print(self.currentIndex, key, index)
       raise ValueError("(self.currentIndex + key) index must be >= 0")
 
     if np.isnan(self.values[index][0]):
@@ -99,7 +100,7 @@ class Security:
     try:
       return self.shares * self.minute[0].close
     except IndexError:
-      print("end of list")
+      # print("end of list")
       return self.shares * self.minute[-1].close
 
   ## Trade shares of the security
