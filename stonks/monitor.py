@@ -28,7 +28,7 @@ def update(api):
     color = Fore.GREEN
   elif dailyProfit < 0:
     color = Fore.RED
-  print(f"{timestamp.isoformat()} "
+  print(f"{timestamp} "
         f"${equity:10.2f} "
         f"{color}${dailyProfit:8.2f} {dailyProfitPercent:8.3f}%")
 

@@ -7,6 +7,7 @@ if sys.version_info[0] != 3 or sys.version_info[1] < 6:
 
 from . import portfolio
 import datetime
+import random
 
 class Strategy:
   params = {}
@@ -31,10 +32,12 @@ class Strategy:
       for symbol, shares in initialSecurities.items():
         self.portfolio.securities[symbol].shares = shares
 
-  ## Setup the strategy's portfolio to match the live account 
+  ## Setup the strategy's portfolio to match the live account
   #  @param api alpaca object
-  def _setupLive(self, api):
-    self.portfolio = portfolio.PortfolioLive(api)
+  #  @param marginTrading True allows funds to be borrowed, False limits to cash only
+  def _setupLive(self, api, marginTrading=False):
+    self.portfolio = portfolio.PortfolioLive(
+        api, self.orderUpdate, marginTrading=marginTrading)
     for symbol, shares in api.getLivePositions().items():
       self.portfolio.securities[symbol].shares = shares
 
@@ -93,10 +96,6 @@ class Strategy:
       self.log("{:8} {:4} order for {:4.0f} shares of {:5} for ${:10.2f}".format(
           order.status, side, shares, symbol, value))
 
-# TODO add a walk forward routine
-# Starting with the starte a week ago, optimize params for that week
-# Proceed with the best algorithm it should have used last week
-
 class Crossover(Strategy):
   params = {"long": 9, "short": 2}
   paramsAdj = {"long": range(5, 20, 1), "short": range(1, 6, 1)}
@@ -120,6 +119,21 @@ class Crossover(Strategy):
       self.portfolio.buy(security, value=self.portfolio.availableFunds())
     elif security.shares != 0 and smaShort < smaLong:
       self.portfolio.sell(security, shares=security.shares)
+
+class AlwaysOrder(Strategy):
+  params = {"moveFactor": 5}
+  paramsAdj = {"moveFactor": range(1, 6, 1)}
+
+  def nextMinute(self):
+    toMove = self.portfolio.availableFunds() / self.params["moveFactor"]
+    heldSecurities = [
+        a for a in self.portfolio.securities.values() if a.shares > 0]
+    if bool(random.getrandbits(1)) or len(heldSecurities) == 0:
+      security = random.choice(list(self.portfolio.securities.values()))
+      self.portfolio.buy(security, value=toMove)
+    else:
+      security = random.choice(heldSecurities)
+      self.portfolio.sell(security, value=toMove)
 
 
 ## If customStrategy exists, use it, else use crossover strategy

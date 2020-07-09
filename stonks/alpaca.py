@@ -52,7 +52,7 @@ class Alpaca:
       symbols = [symbol]
     else:
       symbols = self.getSymbols()
-      
+
     with concurrent.futures.ThreadPoolExecutor() as executor:
       for symbol in symbols:
         executor.submit(self.loadSymbol, symbol, calendar, timestamps)
@@ -84,8 +84,7 @@ class Alpaca:
   #  @param channel notification came in from
   #  @param trade data
   async def _onTradeUpdates(self, conn, channel, trade):
-    print("  trade", trade, datetime.datetime.now())
-    # TODO update portfolio order book
+    self.liveStrategy.portfolio._onTradeUpdate(trade)
 
   ## On push update of account updates
   #  @param conn connection object
@@ -134,8 +133,8 @@ class Alpaca:
           color = Fore.GREEN
         elif dailyProfit < 0:
           color = Fore.RED
-        print(f"{now.isoformat()} "
-              f"${status:6} "
+        print(f"{now} "
+              f"{status:6} "
               f"${currentValue:10.2f} "
               f"{color}${dailyProfit:8.2f} {dailyProfitPercent:8.3f}%")
 
@@ -144,25 +143,48 @@ class Alpaca:
 
   ## Run alpaca live streaming
   #  @param strategy to operate on live data
-  def runLive(self, strategy):
+  #  @param marginTrading True allows funds to be borrowed, False limits to cash only
+  def runLive(self, strategy, marginTrading=False):
     if self.conn is None:
       print("Must setup alpaca with live=True")
       sys.exit(1)
-    strategy._setupLive(self)
+    strategy._setupLive(self, marginTrading=marginTrading)
     asyncio.ensure_future(self._coroutine())
     self.securityDataUpdate = {}
     self.liveStrategy = strategy
     self.liveLastEquity = np.float64(self.api.get_account().last_equity)
     self.conn.run(self.liveChannels)
 
+  ## Get the amount of cash as reported by alpaca
+  #  @return USD
   def getLiveCash(self):
-    return self.api.get_account().cash
+    return float(self.api.get_account().cash)
 
+  ## Get the buying power as reported by alpaca
+  #  @return USD
+  def getLiveBuyingPower(self):
+    return float(self.api.get_account().buying_power)
+
+  ## Get the positions held as reported by alpaca
+  #  @return dict of shares indexed by symbol
   def getLivePositions(self):
     securities = {}
     for position in self.api.list_positions():
       securities[position.symbol] = np.float64(position.qty)
     return securities
+
+  ## Submit an order to alpaca
+  #  @param symbol to order
+  #  @param shares quantity to order
+  #  @param side to order: "buy" or "sell"
+  def submit_order(self, symbol, shares, side):
+    self.api.submit_order(
+      symbol=symbol,
+      side=side,
+      type="market",
+      qty=shares,
+      time_in_force="day"
+    )
 
   ## Add symbols to the watchlist
   #  @param symbols list of symbols to add
@@ -416,7 +438,7 @@ class Alpaca:
       datetime.datetime.utcnow()) - datetime.timedelta(minutes=1)
     timestamps = []
 
-    if type(calendar) == pd.DataFrame:
+    if isinstance(calendar, pd.DataFrame):
       for index, row in calendar.iterrows():
         start = est.localize(datetime.datetime.combine(index, row.open))
         end = est.localize(datetime.datetime.combine(index, row.close))
@@ -424,7 +446,7 @@ class Alpaca:
         while timestamp < end and timestamp < latestTimestamp:
           timestamps.append(timestamp)
           timestamp = timestamp + datetime.timedelta(minutes=1)
-    elif type(calendar) == pd.Series:
+    elif isinstance(calendar, pd.Series):
       start = est.localize(
           datetime.datetime.combine(
               calendar.name, calendar.open))

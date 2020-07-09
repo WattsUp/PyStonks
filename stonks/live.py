@@ -14,7 +14,7 @@ def main():
   preStart = 50
   preStartFromDate = datetime.date.today() - datetime.timedelta(days=preStart)
   api = alpaca.Alpaca(preStartFromDate, live=True)
-  api.runLive(st.strategy)
+  api.runLive(st.strategy)  # , marginTrading=True)
 
 
 if __name__ == "__main__":
