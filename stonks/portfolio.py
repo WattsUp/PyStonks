@@ -15,7 +15,7 @@ class Order:
   #  @param shares to move, positive for buy, negative for sell
   def __init__(self, security, shares):
     self.security = security
-    self.shares = shares
+    self.shares = abs(shares)
     self.filledShares = 0
     self.value = security.minute[0].close * shares
     self.status = "PLACED"

@@ -104,18 +104,18 @@ class Security:
       return self.shares * self.minute[-1].close
 
   ## Trade shares of the security
-  #  @param shares to move, positive for buy, negative for sell
-  #  @param executed price of the order
+  #  @param shares to move
+  #  @param executed price of the order, positive for buy, negative for sell
   def _transaction(self, shares, executedPrice):
     profit = None
-    if shares > 0:
-      self.cost += abs(executedPrice)
+    if executedPrice > 0:
+      self.cost += executedPrice
+      self.shares += shares
     else:
-      price = self.cost * abs(shares) / self.shares
+      price = self.cost * shares / self.shares
       self.cost -= price
       profit = abs(executedPrice) - price
       self.lifeTimeProfit += profit
-    self.shares += shares
     if self.shares < 0:
       raise ValueError("Holding negative shares of " + self.symbol)
     return profit

@@ -16,7 +16,7 @@ def quickTest(symbol=None):
   toDate = datetime.date.today().replace(day=1) - datetime.timedelta(days=1)
   fromDate = toDate.replace(year=(toDate.year - 1))
   sim = simulation.Simulation(fromDate, toDate, symbol=symbol)
-  # st.strategy.walkForward = False
+  st.strategy.walkForward = False
   sim.run(st.strategy)
   sim.printReport()
   sim.plot(symbol=symbol)
