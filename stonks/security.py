@@ -82,6 +82,7 @@ class Security:
     self.shares = 0
     self.cost = 0
     self.lifeTimeProfit = 0
+    self.availableShares = 0
 
   def _update(self, latestBar):
     self.minute._append(latestBar)
@@ -111,11 +112,13 @@ class Security:
     if executedPrice > 0:
       self.cost += executedPrice
       self.shares += shares
+      self.availableShares += shares
     else:
       price = self.cost * shares / self.shares
       self.cost -= price
       profit = abs(executedPrice) - price
       self.lifeTimeProfit += profit
+      self.shares -= shares
     if self.shares < 0:
       raise ValueError("Holding negative shares of " + self.symbol)
     return profit

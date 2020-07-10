@@ -203,15 +203,13 @@ class Simulation:
 
     reports = []
     if singleThreaded:
-      walkForward = strategy.walkForward
       for combination in combinations:
         reports.append(self._optimizeRunner(
-            strategy,
+            type(strategy)(),
             calendar,
             combination,
             progressBar=progressBar,
             initialSecurities=initialSecurities))
-      strategy.walkForward = walkForward
     else:
       with concurrent.futures.ProcessPoolExecutor() as executor:
         futures = []

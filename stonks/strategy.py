@@ -88,7 +88,7 @@ class Strategy:
   def orderUpdate(self, order):
     shares = abs(order.shares)
     symbol = order.security.symbol
-    side = "buy" if (order.shares > 0) else "sell"
+    side = "buy" if (order.value > 0) else "sell"
     value = order.value
     profit = order.profit
     if profit:

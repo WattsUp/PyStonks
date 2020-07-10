@@ -378,7 +378,8 @@ class Alpaca:
       candlesDays = pd.concat([candlesDays, candles])
       start = datetime.date(start.year + 1, 1, 1)
     candlesDays = candlesDays.reindex(calendar.index)
-    if candlesDays.empty or np.isnan(candlesDays["open"][0]):
+    if candlesDays.empty or np.isnan(candlesDays["open"][-1]):
+      print(candlesDays)
       print("{:5} no data, before historic data".format(symbol))
       return
 

@@ -89,7 +89,10 @@ class Portfolio:
   ## Process orders, execute on the opening price
   def _processOrders(self):
     for order in self.orders:
-      price = order.shares * order.security.minute[0].open
+      shares = order.shares
+      if order.value < 0:
+        shares = -shares
+      price = shares * order.security.minute[0].open
       if price < self.cash:
         self.cash -= price
         order.complete(price)
@@ -103,12 +106,13 @@ class Portfolio:
   #  @param shares number of shares, None to calculate from value
   #  @param value value of shares to sell (based on current minute closing price)
   def sell(self, security, shares=None, value=None):
-    if not shares:
+    if shares is None:
       shares = value / security.minute[0].close
-    shares = min(security.shares, abs(np.floor(shares)))
+    shares = min(security.availableShares, abs(np.floor(shares)))
     if shares == 0:
       return
-    self.orders.append(Order(security, -abs(shares)))
+    security.availableShares -= shares
+    self.orders.append(Order(security, -shares))
     self.orderCallback(self.orders[-1])
 
   ## Buy shares of a security
@@ -116,7 +120,7 @@ class Portfolio:
   #  @param shares number of shares, None to calculate from value
   #  @param value value of shares to buy (based on current minute closing price)
   def buy(self, security, shares=None, value=None):
-    if not shares:
+    if shares is None:
       shares = value / security.minute[0].close
     shares = abs(np.floor(shares))
     if shares == 0:
