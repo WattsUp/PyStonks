@@ -20,6 +20,8 @@ class Strategy:
     self.silent = False
     self.walkForward = True
     self.singleThreaded = False
+    self.tradingMinutesLeft = 0
+    self.tradingMinutesElapsed = 0
 
   ## Set the securities used by the strategy
   #  @param api alpaca object
@@ -39,8 +41,9 @@ class Strategy:
   def _setupLive(self, api, marginTrading=False):
     self.portfolio = portfolio.PortfolioLive(
         api, self.orderUpdate, marginTrading=marginTrading)
-    for symbol, shares in api.getLivePositions().items():
+    for symbol, (shares, price) in api.getLivePositions().items():
       self.portfolio.securities[symbol].shares = shares
+      self.portfolio.securities[symbol].cost = shares * price
 
   ## Operate on the next minute data, override this
   def nextMinute(self):
@@ -86,17 +89,18 @@ class Strategy:
   ## Callback for updating an order
   #  @param order that was updated
   def orderUpdate(self, order):
-    shares = abs(order.shares)
+    shares = order.shares
     symbol = order.security.symbol
     side = "buy" if (order.value > 0) else "sell"
-    value = order.value
+    value = abs(order.value)
+    price = value / shares
     profit = order.profit
-    if profit:
-      self.log("{:8} {:4} order for {:4.0f} shares of {:5} for ${:10.2f} => ${:7.2f} profit".format(
-          order.status, side, shares, symbol, value, profit))
+    if profit is not None:
+      self.log("{:8} {:4} order for {:4.0f} shares of {:5} at ${:7.2f} for ${:10.2f} => ${:7.2f} profit".format(
+          order.status, side, shares, symbol, price, value, profit))
     else:
-      self.log("{:8} {:4} order for {:4.0f} shares of {:5} for ${:10.2f}".format(
-          order.status, side, shares, symbol, value))
+      self.log("{:8} {:4} order for {:4.0f} shares of {:5} at ${:7.2f} for ${:10.2f}".format(
+          order.status, side, shares, symbol, price, value))
 
 class Crossover(Strategy):
   params = {"long": 9, "short": 2}

@@ -44,6 +44,8 @@ class Alpaca:
     self.nextOpen = None
     self.nextClose = None
     self.open = None
+    self.tradingMinutesElapsed = None
+    self.tradingMinutesRemaining = None
     self.securityData = {}
 
     calendar = self.getCalendar(fromDate, toDate)
@@ -117,6 +119,9 @@ class Alpaca:
         self.liveStrategy.portfolio._update(self.securityDataUpdate)
         self.securityDataUpdate = {}
         self.liveStrategy.portfolio._nextMinute()
+        tradingMinutes = self.getTradingMinutes()
+        self.liveStrategy.tradingMinutesElapsed = tradingMinutes[0]
+        self.liveStrategy.tradingMinutesLeft = tradingMinutes[1]
 
         if self.isOpen():
           status = "Open"
@@ -166,11 +171,12 @@ class Alpaca:
     return float(self.api.get_account().buying_power)
 
   ## Get the positions held as reported by alpaca
-  #  @return dict of shares indexed by symbol
+  #  @return dict of (shares, average entry price) indexed by symbol
   def getLivePositions(self):
     securities = {}
     for position in self.api.list_positions():
-      securities[position.symbol] = np.float64(position.qty)
+      securities[position.symbol] = (np.float64(
+        position.qty), np.float64(position.avg_entry_price))
     return securities
 
   ## Submit an order to alpaca
@@ -487,3 +493,34 @@ class Alpaca:
         self.open = clock.is_open
 
     return self.open
+
+  ## Get the number of minutes since the market opened and the number of minutes left
+  #  @return (tradingMinutesElapsed, tradingMinutesRemaining)
+  def getTradingMinutes(self):
+    if self.tradingMinutesElapsed is None:
+      calendar = self.getCalendar(datetime.date.today())
+      start = est.localize(
+          datetime.datetime.combine(
+              calendar.index[0],
+              calendar.open[0]))
+      end = est.localize(
+          datetime.datetime.combine(
+              calendar.index[0],
+              calendar.close[0]))
+      self.tradingMinutesElapsed = 0
+      self.tradingMinutesRemaining = 0
+      now = pytz.utc.localize(
+          datetime.datetime.utcnow()).replace(
+          second=0, microsecond=0)
+      timestamp = start
+      while timestamp < end:
+        if timestamp < now:
+          self.tradingMinutesElapsed += 1
+        else:
+          self.tradingMinutesRemaining += 1
+        timestamp = timestamp + datetime.timedelta(minutes=1)
+      return (self.tradingMinutesElapsed, self.tradingMinutesRemaining)
+
+    self.tradingMinutesElapsed += 1
+    self.tradingMinutesRemaining -= 1
+    return (self.tradingMinutesElapsed, self.tradingMinutesRemaining)

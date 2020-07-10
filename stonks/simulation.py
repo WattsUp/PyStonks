@@ -83,6 +83,8 @@ class Simulation:
         strategy.nextWeek(self, dateMonday)
         lastWeekNumber = weekNumber
       timestamps = self.api.getTimestamps(row)
+      strategy.tradingMinutesLeft = len(timestamps)
+      strategy.tradingMinutesElapsed = 0
       for timestamp in timestamps:
         strategy.timestamp = timestamp
         strategy.portfolio._processOrders()
@@ -99,6 +101,8 @@ class Simulation:
             report["securityProfits"][security.symbol].append(
               security.lifeTimeProfit)
         strategy.portfolio._nextMinute()
+        strategy.tradingMinutesLeft -= 1
+        strategy.tradingMinutesElapsed += 1
 
       value = strategy.portfolio.value()
       if len(closingValue) > 0:
