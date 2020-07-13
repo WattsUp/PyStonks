@@ -55,9 +55,15 @@ class Alpaca:
     else:
       symbols = self.getSymbols()
 
+    # symbols=["NEPT","MSFT","VOO","AMD","ENPH","SEDG","NKE","DVA","PLUG","TGT","LYB","SNAP","CPRX","ZNGA","SBUX","STM","NEM","SMSI","IAG","EROS","NVDA","ANSS","RMD","ODFL","PYPL","WMT","LDOS","GOOGL","AMZN","F","GE","DIS","AAL","DAL","GPRO","CCL","AAPL","FIT","NCLH","BAC","UAL","INO","CGC","UBER","RCL","CRON","TWTR","FB","GRPN","MRNA","BABA","MRO","T","KO","APHA","SAVE","LUV","XOM","JBLU","MFA","MGM","GM","NIO","AMC","NFLX","PENN","SPCE","NRZ","TLRY","VSLR","NOK","GILD","LYFT","HAL","SPY","V","SRNE","SQ","PFE","KOS","OXY","BYND","JPM","IVR","ET","WFC","CRBP","PLAY","ERI","NYMT","SPHD","VKTX","BP","TXMD","NTDOY","ZM","PTON","DKNG","ATVI","SNE","CSCO","INTC","AUY","GLUU"]
+
     with concurrent.futures.ThreadPoolExecutor() as executor:
       for symbol in symbols:
         executor.submit(self.loadSymbol, symbol, calendar, timestamps)
+    tempSecurityData = {}
+    for symbol in sorted(self.securityData):
+      tempSecurityData[symbol] = self.securityData[symbol]
+    self.securityData = tempSecurityData
     if len(self.securityData.keys()) == 0:
       print("No symbols loaded")
       sys.exit(1)
