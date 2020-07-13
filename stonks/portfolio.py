@@ -26,7 +26,8 @@ class Order:
   #  @param qty filled
   def partial(self, executedPrice, qty):
     self.status = "PARTIAL"
-    partialOrder = Order(self.security, qty)
+    qty = abs(qty)
+    partialOrder = Order(self.security, qty if executedPrice > 0 else -qty)
     partialOrder.status = "PARTIAL"
     partialOrder.profit = self.security._transaction(qty, executedPrice)
     partialOrder.value = executedPrice
@@ -182,7 +183,8 @@ class PortfolioLive(Portfolio):
     if not self.marginTrading and (self.cash - value) < 0:
       print("Not performing trade: buy would result in negative cash")
       return
-    self.api.submit_order(security.symbol, shares, "buy")
+    self.api.submit_order(security.symbol, shares, "buy",
+                          price=security.minute[0].close)
 
   ## Sell shares of a security
   #  @param security object to sell
@@ -191,10 +193,15 @@ class PortfolioLive(Portfolio):
   def sell(self, security, shares=None, value=None):
     if shares is None:
       shares = value / security.minute[0].close
-    shares = min(abs(np.floor(shares)), security.shares)
+    shares = min(abs(np.floor(shares)), security.availableShares)
     if shares == 0:
       return
-    self.api.submit_order(security.symbol, shares, "sell")
+    security.availableShares -= shares
+    self.api.submit_order(
+        security.symbol,
+        shares,
+        "sell",
+        price=security.minute[0].close)
 
   ## On pushed update of a trade from alpaca, update the order book
   #  @param trade object

@@ -141,7 +141,8 @@ class Alpaca:
         print(f"{now} "
               f"{status:6} "
               f"${currentValue:10.2f} "
-              f"{color}${dailyProfit:8.2f} {dailyProfitPercent:8.3f}%")
+              f"Available ${self.liveStrategy.portfolio.availableFunds():10.2f} "
+              f"{color}${dailyProfit:8.2f} {dailyProfitPercent:8.3f}% ")
 
         minuteProcessed = True
       await asyncio.sleep(1)
@@ -179,18 +180,43 @@ class Alpaca:
         position.qty), np.float64(position.avg_entry_price))
     return securities
 
+  ## Get the orders held as reported by alpaca
+  #  @return dict of (symbol, shares) indexed by orderID
+  def getLiveOrders(self):
+    orders = {}
+    for order in self.api.list_orders():
+      shares = np.float64(order.qty)
+      shares = shares if order.side == "buy" else -shares
+      orders[order.id] = (order.symbol, shares)
+    return orders
+
   ## Submit an order to alpaca
   #  @param symbol to order
   #  @param shares quantity to order
   #  @param side to order: "buy" or "sell"
-  def submit_order(self, symbol, shares, side):
-    self.api.submit_order(
-      symbol=symbol,
-      side=side,
-      type="market",
-      qty=shares,
-      time_in_force="day"
-    )
+  #  @param price per share to execute at for a limit buy, None submits a market order
+  def submit_order(self, symbol, shares, side, price=None):
+    try:
+      if price is not None:
+        self.api.submit_order(
+          symbol=symbol,
+          side=side,
+          type="limit",
+          qty=shares,
+          time_in_force="day",
+          limit_price=price
+        )
+      else:
+        self.api.submit_order(
+          symbol=symbol,
+          side=side,
+          type="market",
+          qty=shares,
+          time_in_force="day"
+        )
+    except Exception as e:
+      print(symbol, shares, side, price)
+      print(e)
 
   ## Add symbols to the watchlist
   #  @param symbols list of symbols to add
@@ -385,7 +411,7 @@ class Alpaca:
       start = datetime.date(start.year + 1, 1, 1)
     candlesDays = candlesDays.reindex(calendar.index)
     if candlesDays.empty or np.isnan(candlesDays["open"][-1]):
-      print(candlesDays)
+      # print(candlesDays)
       print("{:5} no data, before historic data".format(symbol))
       return
 

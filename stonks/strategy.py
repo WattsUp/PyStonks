@@ -32,8 +32,12 @@ class Strategy:
     self.portfolio = portfolio.Portfolio(
         api, startDate, initialCapital, self.orderUpdate)
     if initialSecurities:
-      for symbol, shares in initialSecurities.items():
-        self.portfolio.securities[symbol].shares = shares
+      for symbol, security in initialSecurities.items():
+        if isinstance(security, tuple):
+          self.portfolio.securities[symbol].shares = security[0]
+          self.portfolio.securities[symbol].cost = security[1]
+        else:
+          self.portfolio.securities[symbol].shares = security
 
   ## Setup the strategy's portfolio to match the live account
   #  @param api alpaca object
@@ -43,7 +47,13 @@ class Strategy:
         api, self.orderUpdate, marginTrading=marginTrading)
     for symbol, (shares, price) in api.getLivePositions().items():
       self.portfolio.securities[symbol].shares = shares
+      self.portfolio.securities[symbol].availableShares = shares
       self.portfolio.securities[symbol].cost = shares * price
+    for orderID, (symbol, shares) in api.getLiveOrders().items():
+      self.portfolio.orders[orderID] = portfolio.Order(
+        self.portfolio.securities[symbol], shares)
+      if shares < 0:
+        self.portfolio.securities[symbol].availableShares += shares
 
   ## Operate on the next minute data, override this
   def nextMinute(self):
@@ -64,7 +74,7 @@ class Strategy:
     # Setup simulation with same assets as currently held
     initialSecurities = {"cash": self.portfolio.cash}
     for symbol, security in self.portfolio.securities.items():
-      initialSecurities[symbol] = security.shares
+      initialSecurities[symbol] = (security.shares, security.cost)
 
     # Optimize and use the highest one for this week
     sortedReports = sim.optimize(
@@ -84,6 +94,8 @@ class Strategy:
     if self.silent:
       return
     dt = dt or self.timestamp
+    if isinstance(self.portfolio, portfolio.PortfolioLive):
+      dt = datetime.datetime.now().replace(microsecond=0)
     print("{} {}".format(dt, msg))
 
   ## Callback for updating an order
