@@ -183,8 +183,17 @@ class PortfolioLive(Portfolio):
     if not self.marginTrading and (self.cash - value) < 0:
       print("Not performing trade: buy would result in negative cash")
       return
-    self.api.submit_order(security.symbol, shares, "buy",
-                          price=security.minute[0].close)
+    # Market order
+    self.api.submit_order(
+        security.symbol,
+        shares,
+        "buy")
+    # # Limit order
+    # self.api.submit_order(
+    #     security.symbol,
+    #     shares,
+    #     "buy",
+    #     price=security.minute[0].close)
 
   ## Sell shares of a security
   #  @param security object to sell
@@ -197,11 +206,17 @@ class PortfolioLive(Portfolio):
     if shares == 0:
       return
     security.availableShares -= shares
+    # Market order
     self.api.submit_order(
         security.symbol,
         shares,
-        "sell",
-        price=security.minute[0].close)
+        "sell")
+    # # Limit order
+    # self.api.submit_order(
+    #     security.symbol,
+    #     shares,
+    #     "sell",
+    #     price=security.minute[0].close)
 
   ## On pushed update of a trade from alpaca, update the order book
   #  @param trade object

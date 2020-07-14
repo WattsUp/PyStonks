@@ -11,9 +11,9 @@ import datetime
 
 ## Main function
 def main():
-  preStart = 50
+  preStart = 5
   preStartFromDate = datetime.date.today() - datetime.timedelta(days=preStart)
-  api = alpaca.Alpaca(preStartFromDate, live=True)
+  api = alpaca.Alpaca(preStartFromDate)
   api.runLive(st.strategy)  # , marginTrading=True)
 
 

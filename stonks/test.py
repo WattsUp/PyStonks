@@ -15,7 +15,9 @@ from . import strategy as st
 def quickTest(symbol=None):
   toDate = datetime.date.today().replace(day=1) - datetime.timedelta(days=1)
   fromDate = toDate.replace(year=(toDate.year - 1))
-  sim = simulation.Simulation(fromDate, toDate, symbol=symbol)
+  fromDate = datetime.date(2018, 1, 1)
+  # toDate = datetime.date(2019,1,31)
+  sim = simulation.Simulation(fromDate, toDate, symbol="__ALL__")
   st.strategy.walkForward = False
   sim.run(st.strategy)
   sim.printReport()
@@ -34,7 +36,7 @@ def reloadAndTest(sim):
 ## Main function
 def main():
   st.strategy.silent = True
-  quickTest(symbol="TSLA")
+  quickTest()  # symbol="TSLA")
 
 
 if __name__ == "__main__":

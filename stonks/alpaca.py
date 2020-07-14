@@ -28,7 +28,7 @@ class Alpaca:
   #  @param toDate datetime.date end date (inclusive)
   #  @param paper True will execute on paper trades, false will use a live account
   def __init__(self, fromDate, toDate=datetime.date.today(),
-               symbol=None, paper=True, live=False):
+               symbol=None, paper=True):
     ALPACA_API_KEY = os.getenv("ALPACA_API_KEY_PAPER")
     ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY_PAPER")
     base_url = "https://paper-api.alpaca.markets"
@@ -41,6 +41,7 @@ class Alpaca:
                                      ALPACA_SECRET_KEY,
                                      base_url,
                                      api_version="v2")
+    self.paper = paper
     self.nextOpen = None
     self.nextClose = None
     self.open = None
@@ -51,11 +52,20 @@ class Alpaca:
     calendar = self.getCalendar(fromDate, toDate)
     timestamps = self.getTimestamps(calendar)
     if symbol:
-      symbols = [symbol]
+      if symbol == "__ALL__":
+        symbols = []
+        for asset in self.api.list_assets(
+          status="active", asset_class="us_equity"):
+          if asset.easy_to_borrow and asset.marginable and asset.tradable:
+            symbols.append(asset.symbol)
+        print(len(symbols))
+      else:
+        symbols = [symbol]
     else:
-      symbols = self.getSymbols()
+      symbols = self.getSymbols(includePositions=True)
 
-    # symbols=["NEPT","MSFT","VOO","AMD","ENPH","SEDG","NKE","DVA","PLUG","TGT","LYB","SNAP","CPRX","ZNGA","SBUX","STM","NEM","SMSI","IAG","EROS","NVDA","ANSS","RMD","ODFL","PYPL","WMT","LDOS","GOOGL","AMZN","F","GE","DIS","AAL","DAL","GPRO","CCL","AAPL","FIT","NCLH","BAC","UAL","INO","CGC","UBER","RCL","CRON","TWTR","FB","GRPN","MRNA","BABA","MRO","T","KO","APHA","SAVE","LUV","XOM","JBLU","MFA","MGM","GM","NIO","AMC","NFLX","PENN","SPCE","NRZ","TLRY","VSLR","NOK","GILD","LYFT","HAL","SPY","V","SRNE","SQ","PFE","KOS","OXY","BYND","JPM","IVR","ET","WFC","CRBP","PLAY","ERI","NYMT","SPHD","VKTX","BP","TXMD","NTDOY","ZM","PTON","DKNG","ATVI","SNE","CSCO","INTC","AUY","GLUU"]
+    # symbols=["TSLA", "NEPT","MSFT","VOO","AMD","ENPH","SEDG","NKE","DVA","PLUG","TGT","LYB","SNAP","CPRX","ZNGA","SBUX","STM","NEM","SMSI","IAG","EROS","NVDA","ANSS","RMD","ODFL","PYPL","WMT","LDOS","GOOGL","AMZN","F","GE","DIS","AAL","DAL","GPRO","CCL","AAPL","FIT","NCLH","BAC","UAL","INO","CGC","UBER","RCL","CRON","TWTR","FB","GRPN","MRNA","BABA","MRO","T","KO","APHA","SAVE","LUV","XOM","JBLU","MFA","MGM","GM","NIO","AMC","NFLX","PENN","SPCE","NRZ","TLRY","VSLR","NOK","GILD","LYFT","HAL","SPY","V","SRNE","SQ","PFE","KOS","OXY","BYND","JPM","IVR","ET","WFC","CRBP","PLAY","ERI","NYMT","SPHD","VKTX","BP","TXMD","ZM","PTON","DKNG","ATVI","SNE","CSCO","INTC","AUY","GLUU"]
+    # symbols=symbols[::4]
 
     with concurrent.futures.ThreadPoolExecutor() as executor:
       for symbol in symbols:
@@ -67,17 +77,9 @@ class Alpaca:
     if len(self.securityData.keys()) == 0:
       print("No symbols loaded")
       sys.exit(1)
-
-    if live:
-      self.conn = alpaca_trade_api.StreamConn(
-          ALPACA_API_KEY, ALPACA_SECRET_KEY, base_url, data_stream="polygon")
-      self.conn.register(r"AM.*", self._onMinuteBars)
-      self.conn.register(r"trade_updates", self._onTradeUpdates)
-      self.conn.register(r"account_updates", self._onAccountUpdates)
-      self.conn.register(r".*", self._onData)
-      self.liveChannels = ["trade_updates", "account_updates"]
-      for symbol in symbols:
-        self.liveChannels.append("AM." + symbol)
+    self.liveChannels = ["trade_updates", "account_updates"]
+    for symbol in symbols:
+      self.liveChannels.append("AM." + symbol)
 
   ## On push update of aggregate minute data
   #  @param conn connection object
@@ -113,7 +115,7 @@ class Alpaca:
 
   ## Wrapper to run a periodic function every minute, at 5 seconds after 0
   async def _coroutine(self):
-    minuteProcessed = True
+    minuteProcessed = False
     lastMinute = datetime.datetime.now().replace(microsecond=0).minute
     while True:
       now = datetime.datetime.now().replace(microsecond=0)
@@ -157,18 +159,36 @@ class Alpaca:
   #  @param strategy to operate on live data
   #  @param marginTrading True allows funds to be borrowed, False limits to cash only
   def runLive(self, strategy, marginTrading=False):
-    if self.conn is None:
-      print("Must setup alpaca with live=True")
-      sys.exit(1)
     strategy._setupLive(self, marginTrading=marginTrading)
-    asyncio.ensure_future(self._coroutine())
-    self.securityDataUpdate = {}
-    self.liveStrategy = strategy
-    self.liveLastEquity = np.float64(self.api.get_account().last_equity)
-    self.conn.run(self.liveChannels)
+    ALPACA_API_KEY = os.getenv("ALPACA_API_KEY_PAPER")
+    ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY_PAPER")
+    base_url = "https://paper-api.alpaca.markets"
+    if not self.paper:
+      ALPACA_API_KEY = os.getenv("ALPACA_API_KEY")
+      ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY")
+      base_url = "https://api.alpaca.markets"
+
+    while True:
+      try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        conn = alpaca_trade_api.StreamConn(
+            ALPACA_API_KEY, ALPACA_SECRET_KEY, base_url, data_stream="polygon")
+        conn.register(r"AM.*", self._onMinuteBars)
+        conn.register(r"trade_updates", self._onTradeUpdates)
+        conn.register(r"account_updates", self._onAccountUpdates)
+        conn.register(r".*", self._onData)
+        asyncio.ensure_future(self._coroutine())
+        self.securityDataUpdate = {}
+        self.liveStrategy = strategy
+        self.liveLastEquity = np.float64(self.api.get_account().last_equity)
+        conn.run(self.liveChannels)
+      except asyncio.exceptions.CancelledError:
+        print("Error, restarting")
 
   ## Get the amount of cash as reported by alpaca
   #  @return USD
+
   def getLiveCash(self):
     return float(self.api.get_account().cash)
 
