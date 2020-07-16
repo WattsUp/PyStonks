@@ -48,6 +48,7 @@ class Alpaca:
     self.tradingMinutesElapsed = None
     self.tradingMinutesRemaining = None
     self.securityData = {}
+    self.liveReady = False
 
     calendar = self.getCalendar(fromDate, toDate)
     timestamps = self.getTimestamps(calendar)
@@ -64,7 +65,7 @@ class Alpaca:
     else:
       symbols = self.getSymbols(includePositions=True)
 
-    # symbols=["TSLA", "NEPT","MSFT","VOO","AMD","ENPH","SEDG","NKE","DVA","PLUG","TGT","LYB","SNAP","CPRX","ZNGA","SBUX","STM","NEM","SMSI","IAG","EROS","NVDA","ANSS","RMD","ODFL","PYPL","WMT","LDOS","GOOGL","AMZN","F","GE","DIS","AAL","DAL","GPRO","CCL","AAPL","FIT","NCLH","BAC","UAL","INO","CGC","UBER","RCL","CRON","TWTR","FB","GRPN","MRNA","BABA","MRO","T","KO","APHA","SAVE","LUV","XOM","JBLU","MFA","MGM","GM","NIO","AMC","NFLX","PENN","SPCE","NRZ","TLRY","VSLR","NOK","GILD","LYFT","HAL","SPY","V","SRNE","SQ","PFE","KOS","OXY","BYND","JPM","IVR","ET","WFC","CRBP","PLAY","ERI","NYMT","SPHD","VKTX","BP","TXMD","ZM","PTON","DKNG","ATVI","SNE","CSCO","INTC","AUY","GLUU"]
+    symbols=["TSLA", "NEPT","MSFT","VOO","AMD","ENPH","SEDG","NKE","DVA","PLUG","TGT","LYB","SNAP","CPRX","ZNGA","SBUX","STM","NEM","SMSI","IAG","EROS","NVDA","ANSS","RMD","ODFL","PYPL","WMT","LDOS","GOOGL","AMZN","F","GE","DIS","AAL","DAL","GPRO","CCL","AAPL","FIT","NCLH","BAC","UAL","INO","CGC","UBER","RCL","CRON","TWTR","FB","GRPN","MRNA","BABA","MRO","T","KO","APHA","SAVE","LUV","XOM","JBLU","MFA","MGM","GM","NIO","AMC","NFLX","PENN","SPCE","NRZ","TLRY","VSLR","NOK","GILD","LYFT","HAL","SPY","V","SRNE","SQ","PFE","KOS","OXY","BYND","JPM","IVR","ET","WFC","CRBP","PLAY","ERI","NYMT","SPHD","VKTX","BP","TXMD","ZM","PTON","DKNG","ATVI","SNE","CSCO","INTC","AUY","GLUU"]
     # symbols=symbols[::4]
 
     with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -109,51 +110,65 @@ class Alpaca:
   #  @param channel notification came in from
   #  @param data
   async def _onData(self, conn, channel, data):
-    if not (channel in ("AM", "Q", "A", "T", "trade_updates",
-                        "status", "listening", "authorized")):
+    if channel == "listening":
+      self.liveReady = True
+    elif not (channel in ("AM", "Q", "A", "T", "trade_updates",
+                          "status", "authorized")):
       print("onData", channel, data)
 
   ## Wrapper to run a periodic function every minute, at 5 seconds after 0
   async def _coroutine(self):
     minuteProcessed = False
     lastMinute = datetime.datetime.now().replace(microsecond=0).minute
-    while True:
-      now = datetime.datetime.now().replace(microsecond=0)
-      if now.minute != lastMinute:
-        minuteProcessed = False
-      lastMinute = now.minute
+    status = "Closed"
+    try:
+      while True:
+        now = datetime.datetime.now().replace(microsecond=0)
+        if now.minute != lastMinute:
+          minuteProcessed = False
+        lastMinute = now.minute
 
-      if not minuteProcessed and now.second >= 5:
-        self.liveStrategy.portfolio._update(self.securityDataUpdate)
-        self.securityDataUpdate = {}
-        self.liveStrategy.portfolio._nextMinute()
-        tradingMinutes = self.getTradingMinutes()
-        self.liveStrategy.tradingMinutesElapsed = tradingMinutes[0]
-        self.liveStrategy.tradingMinutesLeft = tradingMinutes[1]
+        if not minuteProcessed and now.second >= 5 and self.liveReady:
 
-        if self.isOpen():
-          status = "Open"
-          self.liveStrategy.timestamp = now
-          self.liveStrategy.nextMinute()
-        else:
-          status = "Closed"
+          self.liveStrategy.portfolio._update(self.securityDataUpdate)
+          self.securityDataUpdate = {}
+          self.liveStrategy.portfolio._nextMinute()
 
-        currentValue = self.liveStrategy.portfolio.value()
-        dailyProfit = currentValue - self.liveLastEquity
-        dailyProfitPercent = dailyProfit / currentValue * 100
-        color = Fore.WHITE
-        if dailyProfit > 0:
-          color = Fore.GREEN
-        elif dailyProfit < 0:
-          color = Fore.RED
-        print(f"{now} "
-              f"{status:6} "
-              f"${currentValue:10.2f} "
-              f"Available ${self.liveStrategy.portfolio.availableFunds():10.2f} "
-              f"{color}${dailyProfit:8.2f} {dailyProfitPercent:8.3f}% ")
+          if self.isOpen():
+            # Force update if it is just opening
+            tradingMinutes = self.getTradingMinutes(force=(status == "Closed"))
+            self.liveStrategy.tradingMinutesElapsed = tradingMinutes[0]
+            self.liveStrategy.tradingMinutesLeft = tradingMinutes[1]
 
-        minuteProcessed = True
-      await asyncio.sleep(1)
+            if status == "Closed":
+              self.liveLastEquity = np.float64(
+                self.api.get_account().last_equity)
+
+            status = "Open"
+
+            self.liveStrategy.timestamp = now
+            self.liveStrategy.nextMinute()
+          else:
+            status = "Closed"
+
+          currentValue = self.liveStrategy.portfolio.value()
+          dailyProfit = currentValue - self.liveLastEquity
+          dailyProfitPercent = dailyProfit / currentValue * 100
+          color = Fore.WHITE
+          if dailyProfit > 0:
+            color = Fore.GREEN
+          elif dailyProfit < 0:
+            color = Fore.RED
+          print(f"{now} "
+                f"{status:6} "
+                f"${currentValue:10.2f} "
+                f"Available ${self.liveStrategy.portfolio.availableFunds():10.2f} "
+                f"{color}${dailyProfit:8.2f} {dailyProfitPercent:8.3f}% ")
+
+          minuteProcessed = True
+        await asyncio.sleep(1)
+    except KeyboardInterrupt:
+      sys.exit(0)
 
   ## Run alpaca live streaming
   #  @param strategy to operate on live data
@@ -188,7 +203,6 @@ class Alpaca:
 
   ## Get the amount of cash as reported by alpaca
   #  @return USD
-
   def getLiveCash(self):
     return float(self.api.get_account().cash)
 
@@ -321,6 +335,8 @@ class Alpaca:
     if not candles.empty and (
       date.year != today.year or date.month != today.month):
       # Data is for a previous month, no need to compare to online
+      if "vwap" in candles.columns:
+        candles = candles.drop(columns=["vwap"])
       return candles
 
     while True:
@@ -328,6 +344,7 @@ class Alpaca:
           symbol, 1, "minute", start.isoformat(), end.isoformat(), limit=50000).df
       if response.empty:
         return candles
+      response = response.drop(columns=["vwap"])
       response.index = response.index.tz_convert(est)
       candles.update(response)
       candles = pd.concat([candles, response])
@@ -337,6 +354,9 @@ class Alpaca:
       start = candles.index[-1].to_pydatetime()
       if previousStart == start:
         break
+
+    if "vwap" in candles.columns:
+      candles = candles.drop(columns=["vwap"])
 
     # Only keep rows when the market is open
     timestamps = self.getTimestamps(self.getCalendar(date.replace(day=1), end))
@@ -384,6 +404,8 @@ class Alpaca:
     today = datetime.date.today()
     if not candles.empty and date.year != today.year:
       # Data is for a previous year, no need to compare to online
+      if "vwap" in candles.columns:
+        candles = candles.drop(columns=["vwap"])
       return candles
 
     while True:
@@ -392,6 +414,7 @@ class Alpaca:
             symbol, 1, "day", start.isoformat(), end.isoformat()).df
       except TypeError:
         return candles
+      response = response.drop(columns=["vwap"])
       response.index = response.index.tz_convert(est)
       candles.update(response)
       candles = pd.concat([candles, response])
@@ -402,8 +425,12 @@ class Alpaca:
       if previousStart == start:
         break
 
+    if "vwap" in candles.columns:
+      candles = candles.drop(columns=["vwap"])
     for index in candles[pd.isnull(candles).any(axis=1)].index:
+      print(candles)
       print("year holes")
+      sys.exit(0)
       intIndex = candles.index.get_loc(index)
       closePrice = candles.iloc[intIndex - 1].close
       row = candles.loc[index]
@@ -451,7 +478,7 @@ class Alpaca:
         start.year + (start.month // 12), start.month % 12 + 1, 1)
     candlesMinutes = candlesMinutes.reindex(timestamps)
 
-    # print("{:5} loaded".format(symbol))
+    # print("{:5} loaded\n".format(symbol), end="", flush=True)
 
     self.securityData[symbol] = (candlesMinutes, candlesDays)
 
@@ -547,9 +574,10 @@ class Alpaca:
     return self.open
 
   ## Get the number of minutes since the market opened and the number of minutes left
+  #  @param force will fetch and recalculate trading minutes if True, False uses existing data (no API call)
   #  @return (tradingMinutesElapsed, tradingMinutesRemaining)
-  def getTradingMinutes(self):
-    if self.tradingMinutesElapsed is None:
+  def getTradingMinutes(self, force=False):
+    if self.tradingMinutesElapsed is None or force:
       calendar = self.getCalendar(datetime.date.today())
       start = est.localize(
           datetime.datetime.combine(

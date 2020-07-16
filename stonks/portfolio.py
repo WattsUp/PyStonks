@@ -92,9 +92,12 @@ class Portfolio:
     for order in self.orders:
       shares = order.shares
       if order.value < 0:
-        shares = -shares
-      price = shares * order.security.minute[0].open
-      if price < self.cash:
+        # price = -shares * order.security.minute[0].open
+        price = -shares * order.security.minute[0].low # Pessimistic
+      else:
+        # price = shares * order.security.minute[0].open
+        price = shares * order.security.minute[0].high # Pessimistic
+      if self.cash - price > -1000:
         self.cash -= price
         order.complete(price)
       else:
@@ -106,28 +109,32 @@ class Portfolio:
   #  @param security object to sell
   #  @param shares number of shares, None to calculate from value
   #  @param value value of shares to sell (based on current minute closing price)
+  #  @return True if order succeeded
   def sell(self, security, shares=None, value=None):
     if shares is None:
       shares = value / security.minute[0].close
     shares = min(security.availableShares, abs(np.floor(shares)))
     if shares == 0:
-      return
+      return False
     security.availableShares -= shares
     self.orders.append(Order(security, -shares))
     self.orderCallback(self.orders[-1])
+    return True
 
   ## Buy shares of a security
   #  @param security object to buy
   #  @param shares number of shares, None to calculate from value
   #  @param value value of shares to buy (based on current minute closing price)
+  #  @return True if order succeeded
   def buy(self, security, shares=None, value=None):
     if shares is None:
       shares = value / security.minute[0].close
     shares = abs(np.floor(shares))
     if shares == 0:
-      return
+      return False
     self.orders.append(Order(security, shares))
     self.orderCallback(self.orders[-1])
+    return True
 
   ## Get the amount of available funds for trading
   #  @return cash - reserved cash in open orders
@@ -173,16 +180,17 @@ class PortfolioLive(Portfolio):
   #  @param security object to buy
   #  @param shares number of shares, None to calculate from value
   #  @param value value of shares to buy (based on current minute closing price)
+  #  @return True if order succeeded
   def buy(self, security, shares=None, value=None):
     if shares is None:
       shares = value / security.minute[0].close
     shares = abs(np.floor(shares))
     if shares == 0:
-      return
+      return False
     value = shares * security.minute[0].close
     if not self.marginTrading and (self.cash - value) < 0:
       print("Not performing trade: buy would result in negative cash")
-      return
+      return False
     # Market order
     self.api.submit_order(
         security.symbol,
@@ -194,17 +202,19 @@ class PortfolioLive(Portfolio):
     #     shares,
     #     "buy",
     #     price=security.minute[0].close)
+    return True
 
   ## Sell shares of a security
   #  @param security object to sell
   #  @param shares number of shares, None to calculate from value
   #  @param value value of shares to sell (based on current minute closing price)
+  #  @return True if order succeeded
   def sell(self, security, shares=None, value=None):
     if shares is None:
       shares = value / security.minute[0].close
     shares = min(abs(np.floor(shares)), security.availableShares)
     if shares == 0:
-      return
+      return False
     security.availableShares -= shares
     # Market order
     self.api.submit_order(
@@ -217,6 +227,7 @@ class PortfolioLive(Portfolio):
     #     shares,
     #     "sell",
     #     price=security.minute[0].close)
+    return True
 
   ## On pushed update of a trade from alpaca, update the order book
   #  @param trade object

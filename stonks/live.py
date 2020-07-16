@@ -8,9 +8,11 @@ if sys.version_info[0] != 3 or sys.version_info[1] < 6:
 from . import alpaca
 from . import strategy as st
 import datetime
+import logging
 
 ## Main function
 def main():
+  logging.basicConfig(level=logging.WARNING)
   preStart = 5
   preStartFromDate = datetime.date.today() - datetime.timedelta(days=preStart)
   api = alpaca.Alpaca(preStartFromDate)

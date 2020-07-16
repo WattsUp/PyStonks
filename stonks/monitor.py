@@ -19,8 +19,10 @@ ColoramaInit(autoreset=True)
 #  @param api alpaca_trade_api REST object
 def update(api):
   account = api.get_account()
+  # print(account)
   timestamp = datetime.datetime.now().replace(microsecond=0)
   equity = float(account.equity)
+  cash = float(account.cash)
   dailyProfit = equity - float(account.last_equity)
   dailyProfitPercent = dailyProfit / equity * 100
   color = Fore.WHITE
@@ -30,6 +32,7 @@ def update(api):
     color = Fore.RED
   print(f"{timestamp} "
         f"${equity:10.2f} "
+        f"Cash ${cash:10.2f} "
         f"{color}${dailyProfit:8.2f} {dailyProfitPercent:8.3f}%")
 
 ## Main function
@@ -48,7 +51,8 @@ def main():
                               base_url,
                               api_version="v2")
   update(api)
-  schedule.every().minute.at(":05").do(update, api)
+  schedule.every().minute.at(":10").do(update, api)
+  schedule.every().minute.at(":40").do(update, api)
   while True:
     schedule.run_pending()
     time.sleep(1)
