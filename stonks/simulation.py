@@ -91,15 +91,15 @@ class Simulation:
 
         strategy.nextMinute()
 
-        if recordPlotStats:
-          report["timestamps"].append(timestamp)
-          for security in strategy.portfolio.securities.values():
-            report["securityPrices"][security.symbol].append(
-              security.minute[0].close)
-            report["securityShares"][security.symbol].append(
-              security.shares)
-            report["securityProfits"][security.symbol].append(
-              security.lifeTimeProfit)
+        # if recordPlotStats:
+        #   report["timestamps"].append(timestamp)
+        #   for security in strategy.portfolio.securities.values():
+        #     report["securityPrices"][security.symbol].append(
+        #       security.minute[0].close)
+        #     report["securityShares"][security.symbol].append(
+        #       security.shares)
+        #     report["securityProfits"][security.symbol].append(
+        #       security.lifeTimeProfit)
         strategy.portfolio._nextMinute()
         strategy.tradingMinutesLeft -= 1
         strategy.tradingMinutesElapsed += 1

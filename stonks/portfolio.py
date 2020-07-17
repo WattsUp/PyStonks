@@ -89,15 +89,25 @@ class Portfolio:
 
   ## Process orders, execute on the opening price
   def _processOrders(self):
+    portfolioValue = self.value()
     for order in self.orders:
       shares = order.shares
       if order.value < 0:
-        # price = -shares * order.security.minute[0].open
-        price = -shares * order.security.minute[0].low # Pessimistic
+        # price = order.security.minute[0].open
+        price = (order.security.minute[0].open  +
+                 order.security.minute[0].low) / 2
+        # price = order.security.minute[0].open - 0.01
+        # price = order.security.minute[0].low  # Pessimistic
+
+        price = -shares * price
       else:
-        # price = shares * order.security.minute[0].open
-        price = shares * order.security.minute[0].high # Pessimistic
-      if self.cash - price > -1000:
+        # price = order.security.minute[0].open
+        price = (order.security.minute[0].open  +
+                 order.security.minute[0].high) / 2
+        # price = order.security.minute[0].open + 0.01
+        # price = order.security.minute[0].high  # Pessimistic
+        price = shares * price
+      if self.cash - price > -portfolioValue:
         self.cash -= price
         order.complete(price)
       else:

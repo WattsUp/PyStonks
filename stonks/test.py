@@ -15,11 +15,10 @@ from . import strategy as st
 def quickTest(symbol=None):
   toDate = datetime.date.today().replace(day=1) - datetime.timedelta(days=1)
   fromDate = toDate.replace(year=(toDate.year - 1))
-  fromDate = datetime.date(2020, 5, 1)
-  fromDate = toDate - datetime.timedelta(weeks=2)
-  # toDate = datetime.date(2019,1,31)
-  sim = simulation.Simulation(fromDate, toDate, symbol="__ALL__", initialCapital=30000)
-  st.strategy.walkForward = False
+  fromDate = datetime.date(2018, 1, 1)
+  toDate = datetime.date(2018,12,31)
+  sim = simulation.Simulation(fromDate, toDate, symbol="__ALL__", initialCapital=30000, preStart=100)
+  # st.strategy.walkForward = False
   sim.run(st.strategy)
   sim.printReport()
   sim.plot(symbol=symbol)
