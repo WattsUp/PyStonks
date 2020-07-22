@@ -13,15 +13,31 @@ from . import strategy as st
 #  @param strategy to test
 #  @param symbol of strategy to test on, None for all from watchlist
 def quickTest(strategy, symbol=None):
-  toDate = datetime.date.today() - datetime.timedelta(days=1)
-  fromDate = toDate - datetime.timedelta(weeks=2)
-  fromDate = datetime.date(2018, 1, 1)
-  sim = simulation.Simulation(fromDate, toDate, symbol=symbol)
+  toDate = datetime.date.today().replace(day=1) - datetime.timedelta(days=1)
+  # toDate = datetime.date(2020,4,30)
+  # fromDate = toDate - datetime.timedelta(weeks=1)
+  fromDate = datetime.date(2020, 1, 1)
+  sim = simulation.Simulation(fromDate, toDate, symbol=symbol,
+                              initialCapital=30000, preStart=100)
   # initialSecurities = {"TSLA": 0, "cash": 10000}
   # calendar = sim.api.getCalendar(fromDate, fromDate + datetime.timedelta(weeks=2))
   # sortedReports = sim.optimize(strategy, calendar=calendar, initialSecurities=initialSecurities)
-  sortedReports = sim.optimize(strategy)  # , singleThreaded=True)
-  print("Top five test cases")
+  print(f"{type(st.strategy).__name__} "
+        f"{fromDate} to {toDate} ")
+  for param, value in st.strategy.params.items():
+    if param in st.strategy.paramsAdj:
+      print(f"{param}={st.strategy.paramsAdj[param]}")
+    else:
+      print(f"{param}={value}")
+  sortedReports = sim.optimize(strategy, singleThreaded=True)
+  print(f"{type(st.strategy).__name__} "
+        f"{fromDate} to {toDate} ")
+  for param, value in st.strategy.params.items():
+    if param in st.strategy.paramsAdj:
+      print(f"{param}={st.strategy.paramsAdj[param]}")
+    else:
+      print(f"{param}={value}")
+  print("Top ten test cases")
   for report in sortedReports:
     print("{} P${:10.2f} S{:6.3f}".format(
       report["testCase"], report["profit"], report["sortino"]))

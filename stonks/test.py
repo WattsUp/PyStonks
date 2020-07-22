@@ -15,22 +15,61 @@ from . import strategy as st
 def quickTest(symbol=None):
   toDate = datetime.date.today().replace(day=1) - datetime.timedelta(days=1)
   fromDate = toDate.replace(year=(toDate.year - 1))
-  fromDate = datetime.date(2018, 1, 1)
-  toDate = datetime.date(2018,12,31)
-  sim = simulation.Simulation(fromDate, toDate, symbol="__ALL__", initialCapital=30000, preStart=100)
+  # fromDate = datetime.date(2020,5,1)
+  fromDate = datetime.date(2020, 1, 1)
+  # toDate = datetime.date(2019, 12, 31)
+  sim = simulation.Simulation(
+      fromDate,
+      toDate,
+      symbol="__ALL__",
+      initialCapital=30000,
+      preStart=100)
   # st.strategy.walkForward = False
+  print(f"{type(st.strategy).__name__} "
+        f"{fromDate} to {toDate} "
+        f"WF={st.strategy.walkForward} {st.strategy.optimizeTarget} {st.strategy.optimizeDuration}")
+  for param, value in st.strategy.params.items():
+    if param in st.strategy.paramsAdj and st.strategy.walkForward:
+      print(f"{param}={st.strategy.paramsAdj[param]}")
+    else:
+      print(f"{param}={value}")
   sim.run(st.strategy)
+  print(f"{type(st.strategy).__name__} "
+        f"{fromDate} to {toDate} "
+        f"WF={st.strategy.walkForward} {st.strategy.optimizeTarget} {st.strategy.optimizeDuration}")
+  for param, value in st.strategy.params.items():
+    if param in st.strategy.paramsAdj and st.strategy.walkForward:
+      print(f"{param}={st.strategy.paramsAdj[param]}")
+    else:
+      print(f"{param}={value}")
   sim.printReport()
+  print(
+    f"Winning sells: {len(st.strategy.portfolio.winners)}, losing sells: {len(st.strategy.portfolio.losers)}")
   sim.plot(symbol=symbol)
 
 ## Reload the strategy module and run a test, primarily for interactive development
 #  @param sim simulation object
 def reloadAndTest(sim):
   importlib.reload(st)
-  sim.setup(st.strategy)
-  print("Elapsed test duration: {}".format(
-      sim.run(progressBar=(not st.strategy.silent))))
+  st.strategy.silent = True
+  print(f"{type(st.strategy).__name__} "
+        f"WF={st.strategy.walkForward}")
+  for param, value in st.strategy.params.items():
+    if param in st.strategy.paramsAdj and st.strategy.walkForward:
+      print(f"{param}={st.strategy.paramsAdj[param]}")
+    else:
+      print(f"{param}={value}")
+  sim.run(st.strategy)
+  print(f"{type(st.strategy).__name__} "
+        f"WF={st.strategy.walkForward}")
+  for param, value in st.strategy.params.items():
+    if param in st.strategy.paramsAdj and st.strategy.walkForward:
+      print(f"{param}={st.strategy.paramsAdj[param]}")
+    else:
+      print(f"{param}={value}")
   sim.printReport()
+  print(
+    f"Winning sells: {len(st.strategy.portfolio.winners)}, losing sells: {len(st.strategy.portfolio.losers)}")
 
 
 ## Main function

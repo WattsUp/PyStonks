@@ -63,6 +63,8 @@ class Portfolio:
     self.cash = np.float64(initialCapital)
     self.orders = []
     self.orderCallback = orderCallback
+    self.winners = []
+    self.losers = []
 
   def __str__(self):
     return "Value: ${:0.2f}, cash: ${:0.2f}, available: ${:0.2f}".format(
@@ -110,6 +112,11 @@ class Portfolio:
       if self.cash - price > -portfolioValue:
         self.cash -= price
         order.complete(price)
+        if order.profit:
+          if order.profit > 0:
+            self.winners.append(order.profit)
+          else:
+            self.losers.append(order.profit)
       else:
         order.cancel()
       self.orderCallback(order)
@@ -124,7 +131,7 @@ class Portfolio:
     if shares is None:
       shares = value / security.minute[0].close
     shares = min(security.availableShares, abs(np.floor(shares)))
-    if shares == 0:
+    if shares <= 0:
       return False
     security.availableShares -= shares
     self.orders.append(Order(security, -shares))
@@ -140,7 +147,7 @@ class Portfolio:
     if shares is None:
       shares = value / security.minute[0].close
     shares = abs(np.floor(shares))
-    if shares == 0:
+    if shares <= 0:
       return False
     self.orders.append(Order(security, shares))
     self.orderCallback(self.orders[-1])

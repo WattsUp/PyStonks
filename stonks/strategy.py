@@ -22,6 +22,9 @@ class Strategy:
     self.singleThreaded = False
     self.tradingMinutesLeft = 0
     self.tradingMinutesElapsed = 0
+    self.optimizeTarget = "sortino"
+    self.optimizeDuration = 2
+    self.lastOptimizeMonth = None
 
   ## Set the securities used by the strategy
   #  @param api alpaca object
@@ -66,9 +69,12 @@ class Strategy:
   def nextWeek(self, sim, dateMonday):
     if not self.walkForward:
       return
+    # if dateMonday.month == self.lastOptimizeMonth:
+    #   return
+    # self.lastOptimizeMonth = dateMonday.month
     # Get trading days of last week
     calendar = sim.api.getCalendar(
-        dateMonday - datetime.timedelta(weeks=2),
+        dateMonday - datetime.timedelta(weeks=self.optimizeDuration),
         dateMonday - datetime.timedelta(days=1))
 
     # Setup simulation with same assets as currently held
@@ -78,11 +84,11 @@ class Strategy:
 
     # Optimize and use the highest one for this week
     sortedReports = sim.optimize(
-        strategy,
+        self,
         calendar=calendar,
         progressBar=False,
         initialSecurities=initialSecurities,
-        targetMetric="profit",
+        targetMetric=self.optimizeTarget,
         singleThreaded=self.singleThreaded)
     print("Walk-forward results", sortedReports[0]["testCase"])
     self.params = sortedReports[0]["params"]

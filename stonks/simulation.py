@@ -7,6 +7,7 @@ if sys.version_info[0] != 3 or sys.version_info[1] < 6:
 
 from . import alpaca
 import concurrent.futures
+import copy
 import datetime
 import itertools
 from matplotlib import pyplot
@@ -14,6 +15,7 @@ import numpy as np
 import pytz
 import sys
 
+np.seterr(all='raise')
 est = pytz.timezone("America/New_York")
 
 class Simulation:
@@ -30,7 +32,6 @@ class Simulation:
     self.api = alpaca.Alpaca(preStartFromDate, toDate=toDate, symbol=symbol)
     self.initialCapital = initialCapital
     self.calendar = self.api.getCalendar(fromDate, toDate)
-    self.dates = []
     self.reports = []
 
   ## Run a simulation, expects setup to be called just before
@@ -60,6 +61,7 @@ class Simulation:
             calendar.open[0]))
     strategy._setup(self.api, startDate, initialCapital,
                     initialSecurities=initialSecurities)
+    initialValue = strategy.portfolio.value()
 
     progressTick = max(1, np.floor(len(self.calendar.index) / 40))
     i = 0
@@ -67,6 +69,7 @@ class Simulation:
 
     report = {}
     report["timestamps"] = []
+    report["dates"] = []
     report["securityPrices"] = {}
     report["securityShares"] = {}
     report["securityProfits"] = {}
@@ -111,7 +114,7 @@ class Simulation:
         dailyReturn.append(0)
       closingValue.append(value)
       if recordPlotStats:
-        self.dates.append(index)
+        report["dates"].append(index)
       strategy.portfolio._marketClose()
       i = (i + 1) % progressTick
       if i == 0 and progressBar:
@@ -125,7 +128,7 @@ class Simulation:
       report["close"] = closingValue
       report["daily"] = dailyReturn
     report["testCase"] = testCase
-    report["params"] = strategy.params
+    report["params"] = copy.deepcopy(strategy.params)
 
     avgDailyReturn = np.mean(dailyReturn)
     stddev = np.std(dailyReturn)
@@ -138,18 +141,22 @@ class Simulation:
     negativeReturns = np.array([a for a in dailyReturn if a < 0])
     downsideVariance = np.sum(negativeReturns**2) / len(dailyReturn)
     if downsideVariance == 0:
-      report["sortino"] = 0
+      report["sortino"] = 100000 * avgDailyReturn # No negative days is awesome
     else:
       sortino = avgDailyReturn / np.sqrt(downsideVariance) * np.sqrt(252)
       report["sortino"] = sortino
 
-    profit = closingValue[-1] - initialCapital
+    profit = closingValue[-1] - initialValue
     report["profit"] = profit
-    profitPercent = profit / initialCapital
+    profitPercent = profit / initialValue
     report["profit-percent"] = profitPercent
     # (PeriodPercent + 1)^(number of periods in a trading year)
-    profitPercentYr = np.power(
-      (profitPercent + 1), 252 / len(closingValue)) - 1
+    try:
+      profitPercentYr = np.power(
+        (profitPercent + 1), 252 / len(closingValue)) - 1
+    except Exception as e:
+      print(e)
+      print(profitPercent, profit, initialValue, len(closingValue))
     report["profit-percent-yr"] = profitPercentYr
 
     self.reports.append(report)
@@ -191,7 +198,7 @@ class Simulation:
   #  @param progressBar will print a dot upon completing a test case
   #  @param initialSecurities to start the simulations with
   #  @param singleThreaded will only use one thread and process to execute (saves memory)
-  #  @return list of top 5 reports sorted by targetMetric
+  #  @return list of top 10 reports sorted by targetMetric
   def optimize(self, strategy, calendar=None,
                targetMetric="sortino", progressBar=True, initialSecurities=None, singleThreaded=False):
     if not bool(strategy.paramsAdj):
@@ -234,7 +241,7 @@ class Simulation:
     sortedReports = sorted(
         reports,
         key=lambda x: x[targetMetric],
-        reverse=True)[:5]
+        reverse=True)[:10]
     return sortedReports
 
   ## Print a report of the last run
@@ -334,16 +341,16 @@ class Simulation:
       # Setup second subplot and x axis
       ax2.axhline(0, color="black")
       ax2.set_xlabel("Timestamp")
-      ax2.set_xticks(np.arange(len(self.dates)), minor=True)
-      minorPeriod = int(np.ceil(len(self.dates) / 60))
+      ax2.set_xticks(np.arange(len(report["dates"])), minor=True)
+      minorPeriod = int(np.ceil(len(report["dates"]) / 60))
       ax1.xaxis.set_minor_locator(pyplot.MultipleLocator(minorPeriod))
       majorPeriod = minorPeriod * 5
       ax1.xaxis.set_major_locator(pyplot.MultipleLocator(majorPeriod))
       labels = ["HIDDEN"]
-      for a in self.dates[0::majorPeriod]:
+      for a in report["dates"][0::majorPeriod]:
         labels.append(a.date())
-      labels.append(self.dates[-1].date())
-      ax2.set_xlim(0, len(self.dates))
+      labels.append(report["dates"][-1].date())
+      ax2.set_xlim(0, len(report["dates"]))
       ax2.set_xticklabels(labels, rotation=30, horizontalalignment="right")
 
       # Plot on second subplot
