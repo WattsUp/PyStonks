@@ -49,6 +49,7 @@ class Alpaca:
     self.tradingMinutesRemaining = None
     self.securityData = {}
     self.liveReady = False
+    self.lastDataUpdate = None
 
     calendar = self.getCalendar(fromDate, toDate)
     timestamps = self.getTimestamps(calendar)
@@ -90,6 +91,7 @@ class Alpaca:
   #  @param channel notification came in from
   #  @param bar aggregate data
   async def _onMinuteBars(self, conn, channel, bar):
+    self.lastDataUpdate = datetime.datetime.now()
     data = [bar.open, bar.high, bar.low, bar.close, bar.volume]
     self.securityDataUpdate[bar.symbol] = data
 
@@ -115,63 +117,64 @@ class Alpaca:
   async def _onData(self, conn, channel, data):
     if channel == "listening":
       self.liveReady = True
-    elif not (channel in ("AM", "Q", "A", "T", "trade_updates",
-                          "status", "authorized")):
+    elif not (channel.split(".")[0] in ("AM", "Q", "A", "T", "trade_updates",
+                                        "status", "authorized")):
       print("onData", channel, data)
 
   ## Wrapper to run a periodic function every minute, at 5 seconds after 0
   async def _coroutine(self):
-    minuteProcessed = False
-    lastMinute = datetime.datetime.now().replace(microsecond=0).minute
     status = "Closed"
-    try:
-      while True:
-        now = datetime.datetime.now().replace(microsecond=0)
-        if now.minute != lastMinute:
-          minuteProcessed = False
-        lastMinute = now.minute
+    while True:
+      now = datetime.datetime.now().replace(microsecond=0)
 
-        if not minuteProcessed and now.second >= 5 and self.liveReady:
+      # Execute 3 seconds after the bar minute data
+      if self.lastDataUpdate is not None and now > (
+        self.lastDataUpdate + datetime.timedelta(seconds=3)):
+        self.lastDataUpdate = None
 
-          self.liveStrategy.portfolio._update(self.securityDataUpdate)
-          self.securityDataUpdate = {}
-          self.liveStrategy.portfolio._nextMinute()
+        self.liveStrategy.portfolio._update(self.securityDataUpdate)
+        self.securityDataUpdate = {}
+        self.liveStrategy.portfolio._nextMinute()
 
-          if self.isOpen():
-            # Force update if it is just opening
-            tradingMinutes = self.getTradingMinutes(force=(status == "Closed"))
-            self.liveStrategy.tradingMinutesElapsed = tradingMinutes[0]
-            self.liveStrategy.tradingMinutesLeft = tradingMinutes[1]
+        if self.isOpen():
+          # Force update if it is just opening
+          tradingMinutes = self.getTradingMinutes(force=(status == "Closed"))
+          self.liveStrategy.tradingMinutesElapsed = tradingMinutes[0]
+          self.liveStrategy.tradingMinutesLeft = tradingMinutes[1]
 
-            if status == "Closed":
-              self.liveLastEquity = np.float64(
-                self.api.get_account().last_equity)
+          if status == "Closed":
+            self.liveLastEquity = np.float64(
+              self.api.get_account().last_equity)
 
-            status = "Open"
+          status = "Open"
 
-            self.liveStrategy.timestamp = now
-            self.liveStrategy.nextMinute()
-          else:
-            status = "Closed"
+          self.liveStrategy.timestamp = now
+          self.liveStrategy.nextMinute()
+        else:
+          status = "Closed"
 
-          currentValue = self.liveStrategy.portfolio.value()
-          dailyProfit = currentValue - self.liveLastEquity
-          dailyProfitPercent = dailyProfit / currentValue * 100
-          color = Fore.WHITE
-          if dailyProfit > 0:
-            color = Fore.GREEN
-          elif dailyProfit < 0:
-            color = Fore.RED
-          print(f"{now} "
-                f"{status:6} "
-                f"${currentValue:10.2f} "
-                f"Available ${self.liveStrategy.portfolio.availableFunds():10.2f} "
-                f"{color}${dailyProfit:8.2f} {dailyProfitPercent:8.3f}% ")
+        currentValue = self.liveStrategy.portfolio.value()
+        dailyProfit = currentValue - self.liveLastEquity
+        dailyProfitPercent = dailyProfit / currentValue * 100
+        color = Fore.WHITE
+        if dailyProfit > 0:
+          color = Fore.GREEN
+        elif dailyProfit < 0:
+          color = Fore.RED
+        print(f"{now} "
+              f"{status:6} "
+              f"${currentValue:10.2f} "
+              f"Available ${self.liveStrategy.portfolio.availableFunds():10.2f} "
+              f"{color}${dailyProfit:8.2f} {dailyProfitPercent:8.3f}% ")
 
-          minuteProcessed = True
-        await asyncio.sleep(1)
-    except KeyboardInterrupt:
-      sys.exit(0)
+      await asyncio.sleep(1)
+
+  async def consumeLive(self, conn):
+    await asyncio.gather(
+        conn.trading_ws.consume(),
+        conn.data_ws.consume(),
+        self._coroutine(),
+    )
 
   ## Run alpaca live streaming
   #  @param strategy to operate on live data
@@ -186,23 +189,36 @@ class Alpaca:
       ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY")
       base_url = "https://api.alpaca.markets"
 
-    while True:
+    conn = alpaca_trade_api.StreamConn(
+        ALPACA_API_KEY, ALPACA_SECRET_KEY, base_url, data_stream="polygon")
+    conn.register(r"AM.*", self._onMinuteBars)
+    conn.register(r"trade_updates", self._onTradeUpdates)
+    conn.register(r"account_updates", self._onAccountUpdates)
+    conn.register(r".*", self._onData)
+    shouldRenew = True
+    while shouldRenew:
       try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        conn = alpaca_trade_api.StreamConn(
-            ALPACA_API_KEY, ALPACA_SECRET_KEY, base_url, data_stream="polygon")
-        conn.register(r"AM.*", self._onMinuteBars)
-        conn.register(r"trade_updates", self._onTradeUpdates)
-        conn.register(r"account_updates", self._onAccountUpdates)
-        conn.register(r".*", self._onData)
-        asyncio.ensure_future(self._coroutine())
+        print("Starting live trading")
+        if conn.loop.is_closed():
+          conn.loop = asyncio.new_event_loop()
         self.securityDataUpdate = {}
         self.liveStrategy = strategy
         self.liveLastEquity = np.float64(self.api.get_account().last_equity)
-        conn.run(self.liveChannels)
-      except asyncio.exceptions.CancelledError:
-        print("Error, restarting")
+        conn.loop.run_until_complete(conn.subscribe(self.liveChannels))
+        conn.loop.run_until_complete(self.consumeLive(conn))
+      except KeyboardInterrupt:
+        print("Exiting on Interrupt")
+        shouldRenew = False
+      except asyncio.exceptions.CancelledError as e:
+        print(f"asyncio.exceptions.CancelledError: {e}")
+        conn.loop.run_until_complete(conn.close(shouldRenew))
+        if conn.loop.is_running():
+          conn.loop.close()
+      except Exception as e:
+        print(f"Live error: {e}")
+        conn.loop.run_until_complete(conn.close(shouldRenew))
+        if conn.loop.is_running():
+          conn.loop.close()
 
   ## Get the amount of cash as reported by alpaca
   #  @return USD

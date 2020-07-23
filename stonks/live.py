@@ -12,7 +12,7 @@ import logging
 
 ## Main function
 def main():
-  logging.basicConfig(level=logging.WARNING)
+  logging.basicConfig(level=logging.INFO)
   preStart = 5
   preStartFromDate = datetime.date.today() - datetime.timedelta(days=preStart)
   api = alpaca.Alpaca(preStartFromDate)

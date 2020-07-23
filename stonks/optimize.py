@@ -13,12 +13,12 @@ from . import strategy as st
 #  @param strategy to test
 #  @param symbol of strategy to test on, None for all from watchlist
 def quickTest(strategy, symbol=None):
-  toDate = datetime.date.today().replace(day=1) - datetime.timedelta(days=1)
+  toDate = datetime.date.today() - datetime.timedelta(days=1)
   # toDate = datetime.date(2020,4,30)
-  # fromDate = toDate - datetime.timedelta(weeks=1)
-  fromDate = datetime.date(2020, 1, 1)
+  fromDate = toDate - datetime.timedelta(weeks=2)
+  # fromDate = datetime.date(2020, 1, 1)
   sim = simulation.Simulation(fromDate, toDate, symbol=symbol,
-                              initialCapital=30000, preStart=100)
+                              initialCapital=20000, preStart=100)
   # initialSecurities = {"TSLA": 0, "cash": 10000}
   # calendar = sim.api.getCalendar(fromDate, fromDate + datetime.timedelta(weeks=2))
   # sortedReports = sim.optimize(strategy, calendar=calendar, initialSecurities=initialSecurities)
