@@ -15,9 +15,11 @@ from . import strategy as st
 def quickTest(symbol=None):
   toDate = datetime.date.today().replace(day=1) - datetime.timedelta(days=1)
   fromDate = toDate.replace(year=(toDate.year - 1))
-  # fromDate = datetime.date(2020,5,1)
-  fromDate = datetime.date(2020, 1, 1)
+  fromDate = datetime.date(2020,1,1)
+  # fromDate = datetime.date(2017, 1, 1)
   # toDate = datetime.date(2019, 12, 31)
+  # toDate = datetime.date.today()
+  # fromDate = toDate  - datetime.timedelta(days=0)
   sim = simulation.Simulation(
       fromDate,
       toDate,
@@ -47,6 +49,19 @@ def quickTest(symbol=None):
     f"Winning sells: {len(st.strategy.portfolio.winners)}, losing sells: {len(st.strategy.portfolio.losers)}")
   sim.plot(symbol=symbol)
 
+## Setup a simulation object with standard settings
+#  @param symbol of strategy to test on, None for all from watchlist
+def quickSetup(symbol=None):
+  toDate = datetime.date.today()
+  fromDate = datetime.date(2020, 7, 20)
+  sim = simulation.Simulation(
+      fromDate,
+      toDate,
+      symbol=symbol,
+      initialCapital=30000,
+      preStart=100)
+  return sim
+
 ## Reload the strategy module and run a test, primarily for interactive development
 #  @param sim simulation object
 def reloadAndTest(sim):
@@ -70,6 +85,7 @@ def reloadAndTest(sim):
   sim.printReport()
   print(
     f"Winning sells: {len(st.strategy.portfolio.winners)}, losing sells: {len(st.strategy.portfolio.losers)}")
+  sim.plot(symbol="TSLA")
 
 
 ## Main function

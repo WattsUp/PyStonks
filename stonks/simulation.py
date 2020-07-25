@@ -73,10 +73,12 @@ class Simulation:
     report["securityPrices"] = {}
     report["securityShares"] = {}
     report["securityProfits"] = {}
+    report["securityIndicators"] = {}
     for symbol in strategy.portfolio.securities.keys():
       report["securityPrices"][symbol] = []
       report["securityShares"][symbol] = []
       report["securityProfits"][symbol] = []
+      report["securityIndicators"][symbol] = []
 
     start = datetime.datetime.now()
     for index, row in calendar.iterrows():
@@ -94,15 +96,16 @@ class Simulation:
 
         strategy.nextMinute()
 
-        # if recordPlotStats:
-        #   report["timestamps"].append(timestamp)
-        #   for security in strategy.portfolio.securities.values():
-        #     report["securityPrices"][security.symbol].append(
-        #       security.minute[0].close)
-        #     report["securityShares"][security.symbol].append(
-        #       security.shares)
-        #     report["securityProfits"][security.symbol].append(
-        #       security.lifeTimeProfit)
+        if recordPlotStats:
+          report["timestamps"].append(timestamp)
+          for security in strategy.portfolio.securities.values():
+            report["securityPrices"][security.symbol].append(
+              security.minute[0].close)
+            report["securityShares"][security.symbol].append(
+              security.shares)
+            report["securityProfits"][security.symbol].append(
+              security.lifeTimeProfit)
+            report["securityIndicators"][security.symbol].append(security.indicators)
         strategy.portfolio._nextMinute()
         strategy.tradingMinutesLeft -= 1
         strategy.tradingMinutesElapsed += 1
@@ -271,6 +274,12 @@ class Simulation:
           color="black",
           zorder=0,
           label=symbol)
+      firstElement = report["securityIndicators"][symbol][0]
+      if firstElement is not None and (not isinstance(firstElement, list) or len(firstElement) > 0):
+        ax1.plot(
+            report["securityIndicators"][symbol],
+            zorder=0,
+            label=symbol)
       bottom, top = ax1.get_ylim()
       offset = (top - bottom) / 20
       # Buy and sell markers
@@ -302,7 +311,7 @@ class Simulation:
           marker="v",
           zorder=2,
           label="sell")
-      ax1.legend()
+      # ax1.legend()
 
       # Setup second subplot and x axis
       ax2.axhline(0, color="black")

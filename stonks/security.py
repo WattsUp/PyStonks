@@ -53,6 +53,29 @@ class Candles:
                     self.firstOpen, self.firstOpen, 0])
     return OHLCV(self.values[index])
 
+  ## Calculate the average of the previous duration data points
+  #  @param duration to average over
+  #  @param price to calculate: open, high, low, close, volume
+  #  @return average of [(duration - 1) to now] data points
+  def sma(self, duration, price="close"):
+    if price == "open":
+      column = 0
+    elif price == "high":
+      column = 1
+    elif price == "low":
+      column = 2
+    elif price == "close":
+      column = 3
+    elif price == "volume":
+      column = 4
+    
+    if duration < 1:
+      raise ValueError("Key index must be >= 1")
+
+    values = self.values[self.currentIndex - duration + 1: self.currentIndex+1]
+    values = np.transpose(values)[column]
+    return np.average(values)
+
   ## Reset the current index to the start date or 0
   #  @param startDate to set currentIndex to, None will go to end of list (for live)
   def reset(self, startDate=None):
@@ -83,6 +106,7 @@ class Security:
     self.cost = 0
     self.lifeTimeProfit = 0
     self.availableShares = 0
+    self.indicators = None
 
   def _update(self, latestBar):
     self.minute._append(latestBar)
