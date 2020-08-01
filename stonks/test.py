@@ -15,18 +15,18 @@ from . import strategy as st
 def quickTest(symbol=None):
   toDate = datetime.date.today().replace(day=1) - datetime.timedelta(days=1)
   fromDate = toDate.replace(year=(toDate.year - 1))
-  fromDate = datetime.date(2020,1,1)
+  fromDate = datetime.date(2020,6,1)
   # fromDate = datetime.date(2017, 1, 1)
   # toDate = datetime.date(2019, 12, 31)
-  # toDate = datetime.date.today()
-  # fromDate = toDate  - datetime.timedelta(days=0)
+  toDate = datetime.date.today()
+  # fromDate = toDate  - datetime.timedelta(days=3)
   sim = simulation.Simulation(
       fromDate,
       toDate,
-      symbol="__ALL__",
+      symbol=symbol,
       initialCapital=30000,
       preStart=100)
-  # st.strategy.walkForward = False
+  st.strategy.walkForward = False
   print(f"{type(st.strategy).__name__} "
         f"{fromDate} to {toDate} "
         f"WF={st.strategy.walkForward} {st.strategy.optimizeTarget} {st.strategy.optimizeDuration}")

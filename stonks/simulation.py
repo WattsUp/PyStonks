@@ -87,6 +87,7 @@ class Simulation:
         dateMonday = index - datetime.timedelta(days=index.weekday())
         strategy.nextWeek(self, dateMonday)
         lastWeekNumber = weekNumber
+      strategy.nextDay(self, index)
       timestamps = self.api.getTimestamps(row)
       strategy.tradingMinutesLeft = len(timestamps)
       strategy.tradingMinutesElapsed = 0

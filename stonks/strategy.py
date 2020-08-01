@@ -62,6 +62,12 @@ class Strategy:
   def nextMinute(self):
     pass
 
+  ## Operate on the next day data, override this
+  #  @param sim simulation object to use
+  #  @param dateMonday of the current week
+  def nextDay(self, sim, date):
+    pass
+
   ## Operate on the next week data, default is to perform a walk-forward
   #  optimization: optimize for the past week's data, use that for this week
   #  @param sim simulation object to use
