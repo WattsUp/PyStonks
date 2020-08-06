@@ -102,8 +102,8 @@ class Strategy:
   ## Log a message
   #  @param msg message to log
   #  @param dt datetime object to timestamp with
-  def log(self, msg, dt=None):
-    if self.silent:
+  def log(self, msg, dt=None, force=False):
+    if self.silent and not force:
       return
     dt = dt or self.timestamp
     if isinstance(self.portfolio, portfolio.PortfolioLive):

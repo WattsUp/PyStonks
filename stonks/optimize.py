@@ -17,6 +17,8 @@ def quickTest(strategy, symbol=None):
   # toDate = datetime.date(2020,4,30)
   # fromDate = toDate - datetime.timedelta(weeks=2)
   fromDate = datetime.date(2020, 6, 1)
+  toDate = datetime.date(2020, 7, 31)
+  # toDate = datetime.date.today().replace(day=1) - datetime.timedelta(days=1)
   # toDate = datetime.date(2020, 6, 30)
   sim = simulation.Simulation(fromDate, toDate, symbol=symbol,
                               initialCapital=30000, preStart=50)

@@ -107,6 +107,9 @@ class Security:
     self.lifeTimeProfit = 0
     self.availableShares = 0
     self.indicators = None
+    self.cooldown = 0
+    self.wins = 0
+    self.losses = 0
 
   def _update(self, latestBar):
     self.minute._append(latestBar)
@@ -141,6 +144,10 @@ class Security:
       price = self.cost * shares / self.shares
       self.cost -= price
       profit = abs(executedPrice) - price
+      if profit > 0:
+        self.wins += profit
+      else:
+        self.losses += profit
       self.lifeTimeProfit += profit
       self.shares -= shares
     if self.shares < 0:

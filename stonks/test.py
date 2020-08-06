@@ -15,10 +15,11 @@ from . import strategy as st
 def quickTest(symbol=None):
   toDate = datetime.date.today().replace(day=1) - datetime.timedelta(days=1)
   fromDate = toDate.replace(year=(toDate.year - 1))
-  fromDate = datetime.date(2020,6,1)
+  fromDate = datetime.date(2020,1,1)
   # fromDate = datetime.date(2017, 1, 1)
+  toDate = datetime.date(2020, 7, 31)
   # toDate = datetime.date(2019, 12, 31)
-  toDate = datetime.date.today()
+  # toDate = datetime.date.today() - datetime.timedelta(days=1)
   # fromDate = toDate  - datetime.timedelta(days=3)
   sim = simulation.Simulation(
       fromDate,
@@ -36,6 +37,8 @@ def quickTest(symbol=None):
     else:
       print(f"{param}={value}")
   sim.run(st.strategy)
+  for security in st.strategy.portfolio.securities.values():
+    print(f"{security.symbol:5} Lifetime profit ${security.lifeTimeProfit:10.2f} W/L${security.wins:7.2f}/${security.losses:7.2f}")
   print(f"{type(st.strategy).__name__} "
         f"{fromDate} to {toDate} "
         f"WF={st.strategy.walkForward} {st.strategy.optimizeTarget} {st.strategy.optimizeDuration}")
