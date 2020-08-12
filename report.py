@@ -13,10 +13,42 @@ est = pytz.timezone("America/New_York")
 colorama.init(autoreset=True)
 
 class Security:
-  def __init__(self):
-    self.lifetimeProfit = 0
-    self.shares = 0
-    self.price = 0
+  def __init__(self, symbol):
+    self.symbol = symbol
+    self.lifetimeBuyPrices = []
+    self.lifetimeSellPrices = []
+    self.lifetimeShares = []
+    self.buyShares = 0
+    self.sellShares = 0
+    self.buyPrice = 0
+    self.sellPrice = 0
+
+def colorProfitPercent(profitPercent):
+  if profitPercent > 0.05:
+    return colorama.Fore.CYAN
+  if profitPercent > 0:
+    return colorama.Fore.GREEN
+  if profitPercent == 0:
+    return colorama.Fore.WHITE
+  if profitPercent > -0.005:
+    return colorama.Fore.YELLOW
+  return colorama.Fore.RED
+
+def colorProfit(profit):
+  if profit > 0:
+    return colorama.Fore.GREEN
+  if profit == 0:
+    return colorama.Fore.WHITE
+  return colorama.Fore.RED
+
+def colorAccuracy(accuracy):
+  if accuracy > 0.80:
+    return colorama.Fore.CYAN
+  if accuracy > 0.65:
+    return colorama.Fore.GREEN
+  if accuracy > 0.5:
+    return colorama.Fore.YELLOW
+  return colorama.Fore.RED
 
 def overallReport(restAPI, dateStart, dateEnd, orders):
   history = restAPI.get_portfolio_history(
@@ -24,8 +56,8 @@ def overallReport(restAPI, dateStart, dateEnd, orders):
       date_end=dateEnd,
       timeframe="1D")
 
-  print(f"X-------------------------------------------------------------------------X")
-  print(f"| Date       | Ending Equity | Daily Change (P/L)  | Wins/Losses | Risk   |")
+  print(f"╔════════════╤═══════════════╤═════════════════════╤═════════════╤════════╗")
+  print(f"║ Date       │ Ending Equity │ Daily Change (P/L)  │ Wins/Losses │ Risk   ║")
   dailyReturns = []
   wins = []
   losses = []
@@ -42,12 +74,6 @@ def overallReport(restAPI, dateStart, dateEnd, orders):
 
     profit = endingEquity - prevEquity
     profitPercent = (profit / prevEquity)
-    if profit < 0:
-      color = colorama.Fore.RED
-    elif profit > 0:
-      color = colorama.Fore.GREEN
-    else:
-      color = colorama.Fore.WHITE
     dailyReturns.append(profitPercent)
 
     dailyWins = []
@@ -56,43 +82,44 @@ def overallReport(restAPI, dateStart, dateEnd, orders):
       orders) and orders[orderIndex].filled_at.date() <= timestamp.date():
       order = orders[orderIndex]
       if order.symbol not in securities:
-        securities[order.symbol] = Security()
+        securities[order.symbol] = Security(order.symbol)
       security = securities[order.symbol]
       filledQty = float(order.filled_qty)
       filledPrice = float(order.filled_avg_price) * filledQty
       if order.side == "buy":
-        security.shares += filledQty
-        security.price += filledPrice
+        security.buyShares += filledQty
+        security.buyPrice += filledPrice
       else:
-        if security.shares == 0:
-          print(f"Sold shares before buying {order.symbol}")
-          sys.exit(0)
-        entryPrice = security.price * filledQty / security.shares
-        security.shares -= filledQty
-        security.price -= entryPrice
+        security.sellShares += filledQty
+        security.sellPrice += filledPrice
+
+      if security.sellShares == security.buyShares:
+        # Exiting position
         if order.filled_at.date() == timestamp.date():
-          orderProfit = filledPrice - entryPrice
+          orderProfit = security.sellPrice - security.buyPrice
+          security.lifetimeBuyPrices.append(security.buyPrice)
+          security.lifetimeSellPrices.append(security.sellPrice)
+          security.lifetimeShares.append(security.buyShares)
           if orderProfit > 0:
             wins.append(orderProfit)
             dailyWins.append(orderProfit)
           else:
             losses.append(orderProfit)
             dailyLosses.append(orderProfit)
+
+        # Reset for next position entry
+        security.sellPrice = 0
+        security.sellShares = 0
+        security.buyPrice = 0
+        security.buyShares = 0
       orderIndex += 1
 
     countWins = len(dailyWins)
     countLosses = len(dailyLosses)
     if (countWins + countLosses) == 0:
-      color2 = colorama.Fore.BLACK
       accuracy = 0
     else:
       accuracy = countWins / (countWins + countLosses)
-      if accuracy < 0.5:
-        color2 = colorama.Fore.RED
-      elif accuracy > 0.65:
-        color2 = colorama.Fore.GREEN
-      else:
-        color2 = colorama.Fore.YELLOW
 
     if countWins == 0 or countLosses == 0:
       riskToReward = ""
@@ -107,30 +134,18 @@ def overallReport(restAPI, dateStart, dateEnd, orders):
       else:
         riskToReward = f" 1:1  "
 
-    print(f"| {timestamp.date().isoformat()} | "
-          f"${endingEquity:12,.2f} | "
-          f"${color}{profit:10,.2f} {profitPercent * 100:6.2f}%{colorama.Fore.WHITE} | "
-          f"{countWins:3}:{countLosses:<3}{color2}{accuracy * 100:3.0f}%{colorama.Fore.WHITE} | "
-          f"{riskToReward:6} | ")
+    print(f"║ {timestamp.date().isoformat()} │ "
+          f"${endingEquity:12,.2f} │ "
+          f"${colorProfit(profit)}{profit:10,.2f} {colorProfitPercent(profitPercent)}{profitPercent * 100:6.2f}%{colorama.Fore.WHITE} │ "
+          f"{countWins:3}:{countLosses:<3}{colorAccuracy(accuracy)}{accuracy * 100:3.0f}%{colorama.Fore.WHITE} │ "
+          f"{riskToReward:6} ║")
+    # print("Overnight positions")
+    # for symbol, security in securities.items():
+    #   if security.buyShares != 0:
+    #     print(f"{symbol:5} {security.buyShares - security.sellShares}")
 
-  print(f"X-------------------------------------------------------------------------X")
+  print(f"╠════════════╧═══════════════╧═══════╤═════════════╧═════════════╧════════╣")
   averageReturns = np.mean(dailyReturns)
-  if averageReturns < 0:
-    color1 = colorama.Fore.RED
-  elif averageReturns > 0:
-    color1 = colorama.Fore.GREEN
-  else:
-    color1 = colorama.Fore.WHITE
-
-  twr = np.product(np.array(dailyReturns) + 1) - 1
-  if twr < 0:
-    color2 = colorama.Fore.RED
-  elif twr > 0:
-    color2 = colorama.Fore.GREEN
-  else:
-    color2 = colorama.Fore.WHITE
-  print(f"| Average daily return:      {color1}{averageReturns * 100:6.3f}%{colorama.Fore.WHITE} | "
-        f"Time weighted return:      {color2}{twr * 100:6.3f}%{colorama.Fore.WHITE} |")
 
   stddev = np.std(dailyReturns)
   if stddev == 0:
@@ -138,11 +153,15 @@ def overallReport(restAPI, dateStart, dateEnd, orders):
   else:
     sharpeRatio = averageReturns / stddev * np.sqrt(252)
   if sharpeRatio < 1:
-    color1 = colorama.Fore.RED
+    colorRatio = colorama.Fore.RED
   elif sharpeRatio > 3:
-    color1 = colorama.Fore.GREEN
+    colorRatio = colorama.Fore.GREEN
   else:
-    color1 = colorama.Fore.YELLOW
+    colorRatio = colorama.Fore.YELLOW
+  print(f"║ Average daily return:      {colorProfitPercent(averageReturns)}{averageReturns * 100:6.3f}%{colorama.Fore.WHITE} │ "
+        f"Sharpe ratio:              {colorRatio}{sharpeRatio:6.3f}{colorama.Fore.WHITE}  ║")
+
+  twr = np.product(np.array(dailyReturns) + 1) - 1
 
   negativeReturns = np.array([a for a in dailyReturns if a < 0])
   downsideVariance = np.sum(negativeReturns**2) / len(dailyReturns)
@@ -151,33 +170,26 @@ def overallReport(restAPI, dateStart, dateEnd, orders):
   else:
     sortinoRatio = averageReturns / np.sqrt(downsideVariance) * np.sqrt(252)
   if sortinoRatio < 2:
-    color2 = colorama.Fore.RED
+    colorRatio = colorama.Fore.RED
   elif sortinoRatio > 6:
-    color2 = colorama.Fore.GREEN
+    colorRatio = colorama.Fore.GREEN
   else:
-    color2 = colorama.Fore.YELLOW
-  print(f"| Sharpe ratio:              {color1}{sharpeRatio:6.3f}{colorama.Fore.WHITE}  | "
-        f"Sortino ratio:             {color2}{sortinoRatio:6.3f}{colorama.Fore.WHITE}  |")
+    colorRatio = colorama.Fore.YELLOW
+  print(f"║ Time weighted return:      {colorProfitPercent(twr)}{twr * 100:6.3f}%{colorama.Fore.WHITE} │ "
+        f"Sortino ratio:             {colorRatio}{sortinoRatio:6.3f}{colorama.Fore.WHITE}  ║")
 
   countWins = len(wins)
   countLosses = len(losses)
   averageWin = np.average(wins) if countWins != 0 else 0
   averageLoss = np.average(losses) if countLosses != 0 else 0
-  print(f"| Winning trades:        {countWins:6}      | "
-        f"Average win:         ${averageWin:10.2f}   |")
-  print(f"| Losing trades:         {countLosses:6}      | "
-        f"Average loss:        ${averageLoss:10.2f}   |")
+  print(f"║ Winning trades:        {countWins:6}      │ "
+        f"Average win:         ${averageWin:10,.2f}   ║")
+  print(f"║ Losing trades:         {countLosses:6}      │ "
+        f"Average loss:        ${averageLoss:10,.2f}   ║")
   if (countWins + countLosses) == 0:
-    color1 = colorama.Fore.BLACK
     accuracy = 0
   else:
     accuracy = countWins / (countWins + countLosses)
-    if accuracy < 0.5:
-      color1 = colorama.Fore.RED
-    elif accuracy > 0.65:
-      color1 = colorama.Fore.GREEN
-    else:
-      color1 = colorama.Fore.YELLOW
 
   if countWins == 0 or countLosses == 0:
     riskToReward = ""
@@ -189,9 +201,43 @@ def overallReport(restAPI, dateStart, dateEnd, orders):
       riskToReward = f"{colorama.Fore.RED}{rrRatio:5.1f}:{1:<5}{colorama.Fore.WHITE}"
     else:
       riskToReward = f"  1:1  "
-  print(f"| Trade accuracy:            {color1}{accuracy * 100:6.3f}%{colorama.Fore.WHITE} | "
-        f"Risk-to-reward ratio:   {riskToReward:11}|")
-  print(f"X-------------------------------------------------------------------------X")
+  print(f"║ Trade accuracy:            {colorAccuracy(accuracy)}{accuracy * 100:6.3f}%{colorama.Fore.WHITE} │ "
+        f"Risk-to-reward ratio:   {riskToReward:11}║")
+
+  sortedSecurities = sorted(
+      securities.items(),
+      key=lambda security: np.sum(security[1].lifetimeBuyPrices) -
+      np.sum(security[1].lifetimeSellPrices))
+  print(f"╠════════╤════════════════╤══════════╪═══════════════════╤════════════════╣")
+  print(f"║ Symbol │ Total Profit   │ Shares   │ Profit/Share      │ Wins/Losses    ║")
+  for symbol, security in sortedSecurities:
+    if np.sum(security.lifetimeShares) == 0:
+      continue
+    profit = np.sum(security.lifetimeSellPrices) - \
+        np.sum(security.lifetimeBuyPrices)
+    profitPercent = profit / np.sum(security.lifetimeBuyPrices)
+
+    profitEach = profit / np.sum(security.lifetimeShares)
+    countWins = 0
+    countLosses = 0
+    exitProfits = []
+    for i in range(len(security.lifetimeBuyPrices)):
+      exitProfit = security.lifetimeSellPrices[i] - \
+        security.lifetimeBuyPrices[i]
+      exitProfits.append(exitProfit / security.lifetimeBuyPrices[i])
+      if exitProfit >= 0:
+        countWins += 1
+      else:
+        countLosses += 1
+    accuracy = countWins / (countWins + countLosses)
+
+    print(f"║ {symbol:<6} │ "
+          f"${colorProfit(profit)}{profit:13,.2f}{colorama.Fore.WHITE} │ "
+          f"{np.sum(security.lifetimeShares):8,.0f} │ "
+          f"${profitEach:8,.2f} {colorProfitPercent(profitPercent)}{profitPercent*100:6.2f}%{colorama.Fore.WHITE} │ "
+          f"{countWins:4}:{countLosses:<4}{colorAccuracy(accuracy)} {accuracy * 100:3.0f}%{colorama.Fore.WHITE} ║")
+  print(f"╚════════╧════════════════╧══════════╧═══════════════════╧════════════════╝")
+
 
 def main():
   parser = argparse.ArgumentParser()
