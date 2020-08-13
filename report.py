@@ -6,6 +6,7 @@ import colorama
 import datetime
 import numpy as np
 import os
+import pickle
 import pytz
 import sys
 
@@ -25,6 +26,10 @@ class Security:
     self.dayTrade = True
     self.position = None
 
+## Get the appropriate color for a percent
+#  Cyan for large positive, green for positive, white for zero, yellow for negative, red for large negative
+#  @param profitPercent [-1, inf)
+#  @return colorama.Fore color
 def colorProfitPercent(profitPercent):
   if profitPercent > 0.05:
     return colorama.Fore.CYAN
@@ -36,6 +41,10 @@ def colorProfitPercent(profitPercent):
     return colorama.Fore.YELLOW
   return colorama.Fore.RED
 
+## Get the appropriate color for a profit
+#  Green for positive, white for zero, red for negative
+#  @param profit (-inf, inf)
+#  @return colorama.Fore color
 def colorProfit(profit):
   if profit > 0:
     return colorama.Fore.GREEN
@@ -43,6 +52,10 @@ def colorProfit(profit):
     return colorama.Fore.WHITE
   return colorama.Fore.RED
 
+## Get the appropriate color for an accuracy
+#  Cyan for highly accurate, green for accurate, yellow for questionable, red for inaccurate
+#  @param profitPercent [0, 1]
+#  @return colorama.Fore color
 def colorAccuracy(accuracy):
   if accuracy > 0.80:
     return colorama.Fore.CYAN
@@ -52,26 +65,30 @@ def colorAccuracy(accuracy):
     return colorama.Fore.YELLOW
   return colorama.Fore.RED
 
+## Get the timestamp of an activity
+#  @param activity Alpaca Entity
+#  @return datetime
 def getActivityTimestamp(activity):
   if activity.activity_type == "FILL":
     return activity.transaction_time.astimezone(est)
   if activity.activity_type == "CSR":
     return est.localize(datetime.datetime.fromisoformat(
       activity.date + "T20:01:00"))
-  print(activity)
+  print("Unknown activity type", activity)
   sys.exit(0)
 
-def overallReport(restAPI, dateStart, dateEnd, activities):
-  history = restAPI.get_portfolio_history(
-      date_start=(dateStart - datetime.timedelta(days=10)),
-      date_end=dateEnd,
-      timeframe="1D")
-  if datetime.datetime.fromtimestamp(history.timestamp[-1]).date() < dateStart:
-    print("Selected date(s) have no account history")
-    sys.exit(0)
-
+## Generate and print an overall report over the date window
+#  Daily information includes ending equity, daily change, wins/losses, and risk to reward
+#  Summary information includes profit, various return percentages, various ratios, risk to reward
+#  Security information includes total profit, total shares, profit a share, and wins/losses
+#  @param portfolio history Alpaca object
+#  @param dateStart to begin report
+#  @param dateEnd to end report
+#  @param activities dict {date: [list of activities]} 
+def overallReport(history, dateStart, dateEnd, activities):
   print(f"╔════════════╤═══════════════╤═══════════════════════╤══════════════╤═════════╗")
   print(f"║ Date       │ Ending Equity │ Daily Change (P/L)    │ Wins/Losses  │ Risk    ║")
+
   dailyReturns = []
   wins = []
   losses = []
@@ -104,7 +121,7 @@ def overallReport(restAPI, dateStart, dateEnd, activities):
               securities[activity["symbol"]] = Security(activity["symbol"])
             security = securities[activity["symbol"]]
 
-            security.lifetimeEntryPrices.append(activity["enterPrice"])
+            security.lifetimeEntryPrices.append(activity["price"])
             security.lifetimeProfits.append(activity["profit"])
             security.lifetimeShares.append(activity["shares"])
           else:
@@ -114,15 +131,17 @@ def overallReport(restAPI, dateStart, dateEnd, activities):
         elif activity["type"] == "deposit":
           dailyDeposits += activity["amount"]
         else:
-          print(activity)
+          print("Unknown activity type", activity)
           sys.exit()
 
     prevEquity = history.equity[i - 1]
     if initialEquity is None:
       initialEquity = prevEquity
+
+    # Don't count deposits added on the last day
     if i != len(history.timestamp) - 1:
-      # Don't count deposits added on the last day
       deposits += dailyDeposits
+
     # Deposits go in after close but are counted in closing equity
     endingEquity = history.equity[i] - dailyDeposits
 
@@ -133,9 +152,10 @@ def overallReport(restAPI, dateStart, dateEnd, activities):
     countWins = len(dailyWins)
     countLosses = len(dailyLosses)
     if (countWins + countLosses) == 0:
-      accuracy = 0
+      accuracy = ""
     else:
       accuracy = countWins / (countWins + countLosses)
+      accuracy = f"{colorAccuracy(accuracy)}{accuracy * 100:3.0f}%{colorama.Fore.WHITE}"
 
     if countWins == 0 or countLosses == 0:
       riskToReward = ""
@@ -153,7 +173,7 @@ def overallReport(restAPI, dateStart, dateEnd, activities):
     print(f"║ {timestamp.date().isoformat()} │ "
           f"${endingEquity:12,.2f} │ "
           f"${colorProfit(profit)}{profit:12,.2f} {colorProfitPercent(profitPercent)}{profitPercent * 100:6.2f}%{colorama.Fore.WHITE} │ "
-          f"{countWins:3}:{countLosses:<3}{colorAccuracy(accuracy)} {accuracy * 100:3.0f}%{colorama.Fore.WHITE} │ "
+          f"{countWins:3}:{countLosses:<3} {accuracy:4} │ "
           f"{riskToReward:7} ║")
 
   print(f"╠════════════╧═══════════════╧═════════╤═════════════╧══════════════╧═════════╣")
@@ -168,6 +188,7 @@ def overallReport(restAPI, dateStart, dateEnd, activities):
 
   averageReturns = np.mean(dailyReturns)
 
+  # Sharpe ratio is average daily return / stddev(daily returns) * sqrt(252 number of trading days in a year)
   stddev = np.std(dailyReturns)
   if stddev == 0:
     sharpeRatio = float('inf')
@@ -182,14 +203,17 @@ def overallReport(restAPI, dateStart, dateEnd, activities):
   print(f"║ Average daily return:      {colorProfitPercent(averageReturns)}{averageReturns * 100:8.3f}%{colorama.Fore.WHITE} │ "
         f"Sharpe ratio:                {colorRatio}{sharpeRatio:6.3f}{colorama.Fore.WHITE}  ║")
 
+  # Time weighted return is the product of the returns
+  # Throw in 1 and subtract 1 to make a profit percent into a close/open percent and vise versa
   twr = np.product(np.array(dailyReturns) + 1) - 1
 
-  negativeReturns = np.array([a for a in dailyReturns if a < 0])
-  downsideVariance = np.sum(negativeReturns**2) / len(dailyReturns)
-  if downsideVariance == 0:
+  # Sortino ratio is average daily return / stddev(negative only daily returns) * sqrt(252 number of trading days in a year)
+  negativeReturns = np.array([min(0, a) for a in dailyReturns])
+  stddev = np.std(negativeReturns)
+  if stddev == 0:
     sortinoRatio = float('inf')
   else:
-    sortinoRatio = averageReturns / np.sqrt(downsideVariance) * np.sqrt(252)
+    sortinoRatio = averageReturns / stddev * np.sqrt(252)
   if sortinoRatio < 2:
     colorRatio = colorama.Fore.RED
   elif sortinoRatio > 6:
@@ -207,6 +231,7 @@ def overallReport(restAPI, dateStart, dateEnd, activities):
         f"Average win:           ${averageWin:10,.2f}   ║")
   print(f"║ Losing trades:           {countLosses:6}      │ "
         f"Average loss:          ${averageLoss:10,.2f}   ║")
+        
   if (countWins + countLosses) == 0:
     accuracy = 0
   else:
@@ -256,38 +281,46 @@ def overallReport(restAPI, dateStart, dateEnd, activities):
           f"{countWins:4}:{countLosses:<4}{colorAccuracy(accuracy)} {accuracy * 100:5.1f}%{colorama.Fore.WHITE} ║")
   print(f"╚════════╧════════════════╧═══════════╧════════════════════╧══════════════════╝")
 
-def ordersReport(restAPI, dateStart, dateEnd, activities):
-  history = restAPI.get_portfolio_history(
-      date_start=(dateStart - datetime.timedelta(days=10)),
-      date_end=dateEnd,
-      timeframe="1D")
-
+## Generate and print a report over the date window for daily orders
+#  Daily order information includes position (short/long, day/overnight), order price, shares, and profit
+#  Summary information includes profit by day of week and time of day
+#  @param portfolio history Alpaca object
+#  @param dateStart to begin report
+#  @param dateEnd to end report
+#  @param activities dict {date: [list of activities]}
+#  @param hideDayEnters will not print enter orders for day positions
+def ordersReport(history, dateStart, dateEnd, activities, hideDayEnters):
   print(f"╔═══════╤════════╤═════════════╤═════════════╤═════════╤══════════════════════╗")
-  print(f"║ Time  │ Symbol │ Position    │ Enter Price │ Shares  │ Profit               ║")
+  print(f"║ Time  │ Symbol │ Position    │ Order Price │ Shares  │ Profit               ║")
+
   for i in range(len(history.timestamp)):
     timestamp = est.localize(
         datetime.datetime.fromtimestamp(
             history.timestamp[i]))
     if timestamp.date() < dateStart:
       continue
+
     print(f"╠═{timestamp.date().isoformat()}═════╪═════════════╪═════════════╪═════════╪══════════════════════╣")
     if timestamp.date() in activities:
       for activity in activities[timestamp.date()]:
         if activity["type"] == "order":
           timestamp = activity["timestamp"]
           symbol = activity["symbol"]
+          entranceExit = activity["entranceExit"]
           position = activity["position"]
-          enterPrice = activity["enterPrice"]
+          price = activity["price"]
           shares = activity["shares"]
           profit = ""
-          if "profit" in activity:
+          if entranceExit == "Exit":
             profit = activity["profit"]
             profitPercent = activity["profitPercent"]
             profit = f"${colorProfit(profit)}{profit:10,.2f} {colorProfitPercent(profitPercent)}{profitPercent * 100:7.2f}%{colorama.Fore.WHITE}"
+          elif hideDayEnters and position.startswith("day"):
+            continue
           print(f"║ {timestamp:%H:%M} │ "
                 f"{symbol:6} │ "
-                f"{position:<10} │ "
-                f"${enterPrice:10,.2f} │ "
+                f"{entranceExit:<5} {position:5} │ "
+                f"${price:10,.2f} │ "
                 f"{shares:7,.0f} │ "
                 f"{profit:20} ║")
 
@@ -296,67 +329,125 @@ def ordersReport(restAPI, dateStart, dateEnd, activities):
           pass
   print(f"╚═══════╧════════╧═════════════╧═════════════╧═════════╧══════════════════════╝")
 
-def aggregateActivities(activities, includeEnterDay=False):
-  days = {}
-  prevTimestamp = getActivityTimestamp(activities[0])
-  day = []
-  securities = {}
+## Get an aggregated list of activities (orders, deposits, etc.)
+#  Aggregated means combining orders for the same position (for partial fills)
+#  @param restAPI Alpaca object
+#  @return dict {date: [list of activities]}
+def getAggregateActivities(restAPI):
+  # Load existing data from cache
+  filename = "datacache/__activities__.pkl"
+  pageToken = None
+  if os.path.exists(filename):
+    with open(filename, "rb") as file:
+      pickleObj = pickle.load(file)
+
+      days = pickleObj["days"]
+      prevDate = pickleObj["prevDate"]
+      day = pickleObj["day"]
+      securities = pickleObj["securities"]
+      pageToken = pickleObj["pageToken"]
+  else:
+    days = {}
+    prevDate = None
+    day = []
+    securities = {}
+
+  # Fetch any new activities
+  activities = restAPI.get_activities(direction="asc", page_token=pageToken)
+  done = len(activities) == 0
+  while not done:
+    pageToken = activities[-1].id
+    activityList = restAPI.get_activities(
+      direction="asc", page_token=pageToken)
+    if len(activityList) > 0:
+      activities.extend(activityList)
+    else:
+      done = True
+  activities.sort(key=lambda activity: getActivityTimestamp(activity))
+
+  # If no new activities, return existing data
+  if len(activities) == 0:
+    print("No new activities")
+    return days
+
+  if prevDate is None:
+    prevDate = getActivityTimestamp(activities[0]).date()
+
+  # For new each activity
   for activity in activities:
+    # If activity timestamp is a new day, save previous day and start a new one
     timestamp = getActivityTimestamp(activity)
-    if timestamp.date() != prevTimestamp.date():
+    if timestamp.date() != prevDate:
+      # Any held securities are not day trades
       for security in securities.values():
         if security.buyShares != 0 or security.sellShares != 0:
           security.dayTrade = False
       day.sort(key=lambda data: data["timestamp"])
-      days[prevTimestamp.date()] = day
-      prevTimestamp = timestamp
+      days[prevDate] = day
+      prevDate = timestamp.date()
       day = []
 
+    # If activity is a filled security order
     if activity.activity_type == "FILL":
+      # Get security object from symbol, create one if non-existant
       if activity.symbol not in securities:
         securities[activity.symbol] = Security(activity.symbol)
       security = securities[activity.symbol]
+
+      # If entering a position, note if long or short
       if security.sellShares == 0 and security.buyShares == 0:
         if activity.side == "buy":
           security.position = "long"
-        else:
+        elif activity.side == "sell_short":
           security.position = "short"
+        else:
+          print("Entering position is neither buy nor sell_short", activity)
 
       qty = float(activity.qty)
       price = float(activity.price) * qty
       if activity.side == "buy":
         security.buyShares += qty
         security.buyPrice += price
-      else:
+      elif activity.side == "sell" or activity.side == "sell_short":
         security.sellShares += qty
         security.sellPrice += price
+      else:
+        print("Activity is neither buy, sell, nor sell_short", activity)
 
+      # Exiting position, sold same as bought
       if security.sellShares == security.buyShares:
-        # Exiting position
         if security.dayTrade:
-          position = f"Day   {security.position:5}"
+          if security.position == "long":
+            security.position = "day L"
+          else:
+            security.position = "day S"
           for data in day:
             if data["type"] != "order" or data["symbol"] != activity.symbol:
               continue
+            if data["complete"]:
+              continue
             data["complete"] = True
-            if not includeEnterDay and data["position"].startswith("Enter"):
-              day.remove(data)
-        else:
-          position = f"Exit  {security.position:5}"
+            data["position"] = security.position
+
         if activity.side == "sell":
+          price = security.sellPrice
           enterPrice = security.buyPrice
           shares = security.buyShares
-        else:
+        elif activity.side == "buy":
+          price = security.buyPrice
           enterPrice = security.sellPrice
           shares = -security.sellShares
+        else:
+          print("Exiting position is neither buy nor sell", activity)
 
         profit = security.sellPrice - security.buyPrice
         data = {
           "type": "order",
           "symbol": activity.symbol,
           "timestamp": timestamp,
-          "position": position,
-          "enterPrice": enterPrice,
+          "entranceExit": "Exit",
+          "position": security.position,
+          "price": price,
           "shares": shares,
           "profit": profit,
           "profitPercent": profit / enterPrice,
@@ -370,9 +461,8 @@ def aggregateActivities(activities, includeEnterDay=False):
         security.buyPrice = 0
         security.buyShares = 0
         security.dayTrade = True
-      elif (security.position == "long" and activity.side == "buy") or (security.position == "short" and activity.side == "sell"):
+      elif (security.position == "long" and activity.side == "buy") or (security.position == "short" and activity.side == "sell_short"):
         # Entering / increasing position
-        position = f"Enter {security.position:5}"
         if activity.side == "buy":
           shares = qty
         else:
@@ -384,12 +474,11 @@ def aggregateActivities(activities, includeEnterDay=False):
             continue
           if data["complete"]:
             continue
-          if data["position"].startswith(
-            "Enter") or data["position"].startswith("Incr"):
+          if data["entranceExit"] == "Enter" or data["entranceExit"] == "Incr.":
             data["timestamp"] = timestamp
             if not security.dayTrade:
-              data["position"] = f"Incr. {security.position:5}"
-            data["enterPrice"] += price
+              data["entranceExit"] = "Incr."
+            data["price"] += price
             data["shares"] += shares
             contribution = True
 
@@ -398,8 +487,9 @@ def aggregateActivities(activities, includeEnterDay=False):
             "type": "order",
             "symbol": activity.symbol,
             "timestamp": timestamp,
-            "position": position,
-            "enterPrice": price,
+            "entranceExit": "Enter",
+            "position": security.position,
+            "price": price,
             "shares": shares,
             "complete": False,
           }
@@ -417,12 +507,25 @@ def aggregateActivities(activities, includeEnterDay=False):
       day.append(data)
 
     else:
-      print(activity)
+      print("Unknown activity type", activity)
       sys.exit(0)
 
   # Add last day
   day.sort(key=lambda data: data["timestamp"])
-  days[prevTimestamp.date()] = day
+  days[prevDate] = day
+
+  # Save information required to resume adding activities
+  if not os.path.exists("datacache"):
+    os.mkdir("datacache")
+  with open(filename, "wb") as file:
+    pickleObj = {
+      "days": days,
+      "prevDate": prevDate,
+      "day": day,
+      "securities": securities,
+      "pageToken": pageToken,
+    }
+    pickle.dump(pickleObj, file, protocol=pickle.HIGHEST_PROTOCOL)
   return days
 
 def main():
@@ -457,8 +560,8 @@ def main():
       help="List orders for each day",
       action="store_true")
   parser.add_argument(
-      "--enter-day",
-      help="Include enter day position in list of orders (requires --orders)",
+      "--hide-day-enters",
+      help="Hide enter day position in list of orders (requires --orders)",
       action="store_true")
   options = parser.parse_args()
   options.period = int(options.period)
@@ -481,6 +584,7 @@ def main():
   account = restAPI.get_account()
   accountCreatedAt = account.created_at.date()
   if options.live:
+    # If live, skip to first day with trades
     firstTrade = restAPI.get_activities(
         activity_types="FILL", direction="asc", page_size=1)[0]
     accountCreatedAt = getActivityTimestamp(firstTrade).date()
@@ -495,25 +599,19 @@ def main():
     dateStart = dateEnd - datetime.timedelta(days=options.period)
   dateStart = max(dateStart, accountCreatedAt)
 
-  activities = restAPI.get_activities(direction="asc")
-  done = False
-  while not done:
-    activityList = restAPI.get_activities(
-      direction="asc", page_token=activities[-1].id)
-    if len(activityList) > 0:
-      activities.extend(activityList)
-    else:
-      done = True
+  history = restAPI.get_portfolio_history(
+      date_start=(dateStart - datetime.timedelta(days=10)),
+      date_end=dateEnd,
+      timeframe="1D")
+  if datetime.datetime.fromtimestamp(history.timestamp[-1]).date() < dateStart:
+    print("Selected date(s) have no account history")
+    sys.exit(0)
 
-  activities.sort(key=lambda activity: getActivityTimestamp(activity))
+  activitiesAgg = getAggregateActivities(restAPI)
 
-  activities = aggregateActivities(activities, options.enter_day)
-  # for date, dailyActivities in activities.items():
-  #   print(date, len(dailyActivities))
-
-  overallReport(restAPI, dateStart, dateEnd, activities)
+  overallReport(history, dateStart, dateEnd, activitiesAgg)
   if options.orders:
-    ordersReport(restAPI, dateStart, dateEnd, activities)
+    ordersReport(history, dateStart, dateEnd, activitiesAgg, options.hide_day_enters)
 
 
 if __name__ == '__main__':
