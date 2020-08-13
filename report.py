@@ -22,6 +22,8 @@ class Security:
     self.sellShares = 0
     self.buyPrice = 0
     self.sellPrice = 0
+    self.dayTrade = True
+    self.position = None
 
 def colorProfitPercent(profitPercent):
   if profitPercent > 0.05:
@@ -63,6 +65,8 @@ def overallReport(restAPI, dateStart, dateEnd, orders):
   losses = []
   orderIndex = 0
   securities = {}
+  initialEquity = None
+  deposits = 0
   for i in range(len(history.timestamp)):
     timestamp = est.localize(
         datetime.datetime.fromtimestamp(
@@ -70,6 +74,8 @@ def overallReport(restAPI, dateStart, dateEnd, orders):
     if timestamp.date() < dateStart:
       continue
     prevEquity = history.equity[i - 1]
+    if initialEquity is None:
+      initialEquity = prevEquity
     endingEquity = history.equity[i]
 
     profit = endingEquity - prevEquity
@@ -145,6 +151,15 @@ def overallReport(restAPI, dateStart, dateEnd, orders):
     #     print(f"{symbol:5} {security.buyShares - security.sellShares}")
 
   print(f"╠════════════╧═══════════════╧═══════╤═════════════╧═════════════╧════════╣")
+  profit = history.equity[-1] - (initialEquity + deposits)
+
+  print(f"║ Total profit:      ${colorProfit(profit)}{profit:12,.2f}{colorama.Fore.WHITE}   │ "
+        f"Beginning equity:   ${initialEquity:12,.2f}  ║")
+
+  profitPercent = profit / initialEquity
+  print(f"║ Simple return:             {colorProfitPercent(profitPercent)}{profitPercent * 100:6.3f}%{colorama.Fore.WHITE} │ "
+        f"Deposits:           ${deposits:12,.2f}  ║")
+
   averageReturns = np.mean(dailyReturns)
 
   stddev = np.std(dailyReturns)
@@ -238,6 +253,130 @@ def overallReport(restAPI, dateStart, dateEnd, orders):
           f"{countWins:4}:{countLosses:<4}{colorAccuracy(accuracy)} {accuracy * 100:3.0f}%{colorama.Fore.WHITE} ║")
   print(f"╚════════╧════════════════╧══════════╧═══════════════════╧════════════════╝")
 
+def ordersReport(restAPI, dateStart, dateEnd, orders):
+  history = restAPI.get_portfolio_history(
+      date_start=(dateStart - datetime.timedelta(days=10)),
+      date_end=dateEnd,
+      timeframe="1D")
+
+  print(f"╔═══════╤═══════╤════════════╤═════════════╤════════╤═════════════════════╗")
+  print(f"║ Time  │ Asset │ Position   │ Enter Price │ Shares │ Profit              ║")
+  orderIndex = 0
+  securities = {}
+  for i in range(len(history.timestamp)):
+    timestamp = est.localize(
+        datetime.datetime.fromtimestamp(
+            history.timestamp[i]))
+    if timestamp.date() < dateStart:
+      continue
+    print(f"╠═{timestamp.date().isoformat()}════╪════════════╪═════════════╪════════╪═════════════════════╣")
+    lines = []
+    while orderIndex < len(
+      orders) and orders[orderIndex].filled_at.date() <= timestamp.date():
+      order = orders[orderIndex]
+      if order.symbol not in securities:
+        securities[order.symbol] = Security(order.symbol)
+      security = securities[order.symbol]
+      if security.sellShares == 0 and security.buyShares == 0:
+        if order.side == "buy":
+          security.position = "long"
+        else:
+          security.position = "short"
+
+      filledQty = float(order.filled_qty)
+      filledPrice = float(order.filled_avg_price) * filledQty
+      if order.side == "buy":
+        security.buyShares += filledQty
+        security.buyPrice += filledPrice
+      else:
+        security.sellShares += filledQty
+        security.sellPrice += filledPrice
+
+      if security.sellShares == security.buyShares:
+        # Exiting position
+        if order.filled_at.date() == timestamp.date():
+          profit = security.sellPrice - security.buyPrice
+          if security.dayTrade:
+            position = "Day   " + security.position
+            for line in lines:
+              if line[1] == order.symbol and line[2].startswith("Enter"):
+                lines.remove(line)
+          else:
+            position = "Exit  " + security.position
+          if order.side == "sell":
+            enterPrice = security.buyPrice
+            shares = security.buyShares
+          else:
+            enterPrice = security.sellPrice
+            shares = -security.sellShares
+
+          profitPercent = profit / enterPrice
+          time = order.filled_at.astimezone(est)
+
+          lines.append([time, order.symbol, position, enterPrice,
+                        shares, profit, profitPercent])
+
+        # Reset for next position entry
+        security.sellPrice = 0
+        security.sellShares = 0
+        security.buyPrice = 0
+        security.buyShares = 0
+        security.dayTrade = True
+      elif (security.position == "long" and order.side == "buy") or (security.position == "short" and order.side == "sell"):
+        # Entering / increasing position
+        if order.filled_at.date() == timestamp.date():
+          position = "Enter " + security.position
+          if order.side == "sell":
+            enterPrice = security.buyPrice
+            shares = -filledQty
+          else:
+            enterPrice = security.sellPrice
+            shares = filledQty
+
+          time = order.filled_at.astimezone(est)
+          contribution = False
+          for line in lines:
+            if line[1] == order.symbol and (
+              line[2].startswith("Enter") or line[2].startswith("Incr")):
+              line[0] = time
+              if not security.dayTrade:
+                line[2] = "Incr. " + security.position
+              line[3] += filledPrice
+              line[4] += shares
+              contribution = True
+
+          if not contribution:
+            lines.append([time, order.symbol, position, filledPrice,
+                          shares, 0, 0])
+      else:
+        # Decreasing position
+        pass
+
+      orderIndex += 1
+
+    for symbol, security in securities.items():
+      if security.buyShares != 0 or security.sellShares != 0:
+        security.dayTrade = False
+    lines.sort(key=lambda line: line[0])
+    for line in lines:
+      if line[2].startswith("Enter") or line[2].startswith("Incr"):
+        print(f"║ {line[0]:%H:%M} │ "
+              f"{line[1]:5} │ "
+              f"{line[2]:<10} │ "
+              f"${line[3]:10,.2f} │ "
+              f"{line[4]:6,.0f} │ "
+              f"                    ║")
+      else:
+        print(f"║ {line[0]:%H:%M} │ "
+              f"{line[1]:5} │ "
+              f"{line[2]:<10} │ "
+              f"${line[3]:10,.2f} │ "
+              f"{line[4]:6,.0f} │ "
+              f"${colorProfit(line[5])}{line[5]:10,.2f} {colorProfitPercent(line[6])}{line[6] * 100:6.2f}%{colorama.Fore.WHITE} ║")
+      # print(line)
+    #     # print(f"{symbol:5} {security.buyShares - security.sellShares}")
+  print(f"╚═══════╧═══════╧════════════╧═════════════╧════════╧═════════════════════╝")
+
 
 def main():
   parser = argparse.ArgumentParser()
@@ -309,11 +448,9 @@ def main():
       after = orderList[-1].created_at
   orders.sort(key=lambda order: order.filled_at)
 
+  overallReport(restAPI, dateStart, dateEnd, orders)
   if options.orders:
-    # orderReport()
-    pass
-  else:
-    overallReport(restAPI, dateStart, dateEnd, orders)
+    ordersReport(restAPI, dateStart, dateEnd, orders)
 
   # print(restAPI.list_orders(status="closed"))
 
