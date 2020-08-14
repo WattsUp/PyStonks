@@ -84,8 +84,9 @@ def getActivityTimestamp(activity):
 #  @param portfolio history Alpaca object
 #  @param dateStart to begin report
 #  @param dateEnd to end report
-#  @param activities dict {date: [list of activities]} 
-def overallReport(history, dateStart, dateEnd, activities):
+#  @param activities dict {date: [list of activities]}
+#  @param dayTradesOnly will only show trade statistics for day trades
+def overallReport(history, dateStart, dateEnd, activities, dayTradesOnly):
   print(f"╔════════════╤═══════════════╤═══════════════════════╤══════════════╤═════════╗")
   print(f"║ Date       │ Ending Equity │ Daily Change (P/L)    │ Wins/Losses  │ Risk    ║")
 
@@ -109,6 +110,8 @@ def overallReport(history, dateStart, dateEnd, activities):
     if timestamp.date() in activities:
       for activity in activities[timestamp.date()]:
         if activity["type"] == "order":
+          if dayTradesOnly and not activity["position"].startswith("day"):
+            continue
           if "profit" in activity:
             if activity["profit"] > 0:
               wins.append(activity["profit"])
@@ -180,15 +183,16 @@ def overallReport(history, dateStart, dateEnd, activities):
   profit = endingEquity - (initialEquity + deposits)
 
   print(f"║ Total profit:        ${colorProfit(profit)}{profit:12,.2f}{colorama.Fore.WHITE}   │ "
-        f"Beginning equity:     ${initialEquity:12,.2f}  ║")
+        f"Beginning equity:    ${initialEquity:12,.2f}   ║")
 
   profitPercent = profit / (initialEquity + deposits)
   print(f"║ Simple return:             {colorProfitPercent(profitPercent)}{profitPercent * 100:8.3f}%{colorama.Fore.WHITE} │ "
-        f"Deposits:             ${deposits:12,.2f}  ║")
+        f"Deposits:            ${deposits:12,.2f}   ║")
 
   averageReturns = np.mean(dailyReturns)
 
-  # Sharpe ratio is average daily return / stddev(daily returns) * sqrt(252 number of trading days in a year)
+  # Sharpe ratio is average daily return / stddev(daily returns) * sqrt(252
+  # number of trading days in a year)
   stddev = np.std(dailyReturns)
   if stddev == 0:
     sharpeRatio = float('inf')
@@ -204,10 +208,12 @@ def overallReport(history, dateStart, dateEnd, activities):
         f"Sharpe ratio:                {colorRatio}{sharpeRatio:6.3f}{colorama.Fore.WHITE}  ║")
 
   # Time weighted return is the product of the returns
-  # Throw in 1 and subtract 1 to make a profit percent into a close/open percent and vise versa
+  # Throw in 1 and subtract 1 to make a profit percent into a close/open
+  # percent and vise versa
   twr = np.product(np.array(dailyReturns) + 1) - 1
 
-  # Sortino ratio is average daily return / stddev(negative only daily returns) * sqrt(252 number of trading days in a year)
+  # Sortino ratio is average daily return / stddev(negative only daily
+  # returns) * sqrt(252 number of trading days in a year)
   negativeReturns = np.array([min(0, a) for a in dailyReturns])
   stddev = np.std(negativeReturns)
   if stddev == 0:
@@ -227,11 +233,17 @@ def overallReport(history, dateStart, dateEnd, activities):
   countLosses = len(losses)
   averageWin = np.average(wins) if countWins != 0 else 0
   averageLoss = np.average(losses) if countLosses != 0 else 0
-  print(f"║ Winning trades:          {countWins:6}      │ "
-        f"Average win:           ${averageWin:10,.2f}   ║")
-  print(f"║ Losing trades:           {countLosses:6}      │ "
-        f"Average loss:          ${averageLoss:10,.2f}   ║")
-        
+  if dayTradesOnly:
+    print(f"║ Winning day trades:      {countWins:6}      │ "
+          f"Average day trade win:  ${averageWin:9,.2f}   ║")
+    print(f"║ Losing day trades:       {countLosses:6}      │ "
+          f"Average day trade loss: ${averageLoss:9,.2f}   ║")
+  else:
+    print(f"║ Winning trades:          {countWins:6}      │ "
+          f"Average trade win:      ${averageWin:9,.2f}   ║")
+    print(f"║ Losing trades:           {countLosses:6}      │ "
+          f"Average trade loss:     ${averageLoss:9,.2f}   ║")
+
   if (countWins + countLosses) == 0:
     accuracy = 0
   else:
@@ -281,6 +293,16 @@ def overallReport(history, dateStart, dateEnd, activities):
           f"{countWins:4}:{countLosses:<4}{colorAccuracy(accuracy)} {accuracy * 100:5.1f}%{colorama.Fore.WHITE} ║")
   print(f"╚════════╧════════════════╧═══════════╧════════════════════╧══════════════════╝")
 
+## Get a bar sized by the number of characters, with 1/8 resolution
+#  @param number of characters, rounded down to nearest 1/8
+#  @return string
+def getBar(characters, reverse=False):
+  temp = "█" * int(np.floor(characters))
+  characters = int(np.floor((characters % 1) * 8))
+  if characters > 0:
+    temp += chr(ord("▏") - characters + 1)
+  return temp
+
 ## Generate and print a report over the date window for daily orders
 #  Daily order information includes position (short/long, day/overnight), order price, shares, and profit
 #  Summary information includes profit by day of week and time of day
@@ -289,9 +311,14 @@ def overallReport(history, dateStart, dateEnd, activities):
 #  @param dateEnd to end report
 #  @param activities dict {date: [list of activities]}
 #  @param hideDayEnters will not print enter orders for day positions
-def ordersReport(history, dateStart, dateEnd, activities, hideDayEnters):
+#  @param dayTradesOnly will only show trade statistics for day trades
+def ordersReport(history, dateStart, dateEnd, activities, hideDayEnters, dayTradesOnly):
   print(f"╔═══════╤════════╤═════════════╤═════════════╤═════════╤══════════════════════╗")
   print(f"║ Time  │ Symbol │ Position    │ Order Price │ Shares  │ Profit               ║")
+
+  weekdays = {}
+  timeOfDays = {}
+  timeWindow = 15
 
   for i in range(len(history.timestamp)):
     timestamp = est.localize(
@@ -304,6 +331,9 @@ def ordersReport(history, dateStart, dateEnd, activities, hideDayEnters):
     if timestamp.date() in activities:
       for activity in activities[timestamp.date()]:
         if activity["type"] == "order":
+          if dayTradesOnly and not activity["position"].startswith("day"):
+            continue
+
           timestamp = activity["timestamp"]
           symbol = activity["symbol"]
           entranceExit = activity["entranceExit"]
@@ -313,6 +343,21 @@ def ordersReport(history, dateStart, dateEnd, activities, hideDayEnters):
           profit = ""
           if entranceExit == "Exit":
             profit = activity["profit"]
+
+            weekday = timestamp.isoweekday()
+            if weekday in weekdays:
+              weekdays[weekday].append(profit)
+            else:
+              weekdays[weekday] = [profit]
+
+            time = timestamp.time()
+            timeOfDay = time.replace(hour=time.hour, minute=(
+              timeWindow * (time.minute // timeWindow)), second=0, microsecond=0, tzinfo=None)
+            if timeOfDay in timeOfDays:
+              timeOfDays[timeOfDay].append(profit)
+            else:
+              timeOfDays[timeOfDay] = [profit]
+
             profitPercent = activity["profitPercent"]
             profit = f"${colorProfit(profit)}{profit:10,.2f} {colorProfitPercent(profitPercent)}{profitPercent * 100:7.2f}%{colorama.Fore.WHITE}"
           elif hideDayEnters and position.startswith("day"):
@@ -327,15 +372,92 @@ def ordersReport(history, dateStart, dateEnd, activities, hideDayEnters):
         else:
           # print(activity)
           pass
-  print(f"╚═══════╧════════╧═════════════╧═════════════╧═════════╧══════════════════════╝")
+
+  print(f"╠═══════╪════════╧═════════════╧═══════════╤═╧═════════╧══════════════════════╣")
+  print(f"║ Day   │ Profits                          │ Losses                           ║")
+  days = []
+  maxMovement = 0
+  for i in range(1, 6):
+    profit = 0
+    loss = 0
+    if i in weekdays:
+      for order in weekdays[i]:
+        if order > 0:
+          profit += order
+        else:
+          loss += order
+      maxMovement = max(maxMovement, profit, -loss)
+
+    # 1-Jan-0001 is a Monday
+    day = {
+      "date": datetime.date(1, 1, i),
+      "profit": profit,
+      "loss": loss
+    }
+    days.append(day)
+  for day in days:
+    date = day["date"]
+    profit = day["profit"]
+    loss = day["loss"]
+    profitBars = getBar(profit / maxMovement * 20)
+    lossBars = getBar(-loss / maxMovement * 20)
+    print(f"║ {date:%a}   │ "
+          f"${profit:10,.2f} {profitBars:20} │"
+          f" ${loss:10,.2f} {lossBars:20} ║ ")
+
+  print(f"╠═══════╪══════════════════════════════════╪══════════════════════════════════╣")
+  print(f"║ Time  │ Profits                          │ Losses                           ║")
+  timeSlices = []
+  maxMovement = 0
+  time = datetime.time(9, 30)
+  while time < datetime.time(16, 0):
+    profit = 0
+    loss = 0
+    if time in timeOfDays:
+      for order in timeOfDays[time]:
+        if order > 0:
+          profit += order
+        else:
+          loss += order
+      maxMovement = max(maxMovement, profit, -loss)
+
+    timeSlice = {
+      "time": time,
+      "profit": profit,
+      "loss": loss
+    }
+    timeSlices.append(timeSlice)
+
+    time = (
+        datetime.datetime.combine(
+            date.today(),
+            time) +
+        datetime.timedelta(
+            minutes=timeWindow)).time()
+
+  for timeSlice in timeSlices:
+    time = timeSlice["time"]
+    profit = timeSlice["profit"]
+    loss = timeSlice["loss"]
+    profitBars = getBar(profit / maxMovement * 20)
+    lossBars = getBar(-loss / maxMovement * 20)
+    print(f"║ {time:%H:%M} │ "
+          f"${profit:10,.2f} {profitBars:20} │"
+          f" ${loss:10,.2f} {lossBars:20} ║ ")
+
+  # for weekday, profit in weekdays.items():
+  #   print(weekday, profit)
+  # for timeOfDay, profit in timeOfDays.items():
+  #   print(timeOfDay, profit)
+  print(f"╚═══════╧══════════════════════════════════╧══════════════════════════════════╝")
 
 ## Get an aggregated list of activities (orders, deposits, etc.)
 #  Aggregated means combining orders for the same position (for partial fills)
 #  @param restAPI Alpaca object
 #  @return dict {date: [list of activities]}
-def getAggregateActivities(restAPI):
+def getAggregateActivities(restAPI, live):
   # Load existing data from cache
-  filename = "datacache/__activities__.pkl"
+  filename = f"datacache/__activities__.{restAPI.get_account().id}.pkl"
   pageToken = None
   if os.path.exists(filename):
     with open(filename, "rb") as file:
@@ -367,7 +489,7 @@ def getAggregateActivities(restAPI):
 
   # If no new activities, return existing data
   if len(activities) == 0:
-    print("No new activities")
+    # print("No new activities")
     return days
 
   if prevDate is None:
@@ -563,6 +685,10 @@ def main():
       "--hide-day-enters",
       help="Hide enter day position in list of orders (requires --orders)",
       action="store_true")
+  parser.add_argument(
+      "--day-trades-only",
+      help="Only show trade statistics on day trades",
+      action="store_true")
   options = parser.parse_args()
   options.period = int(options.period)
   if options.period < 1:
@@ -607,11 +733,22 @@ def main():
     print("Selected date(s) have no account history")
     sys.exit(0)
 
-  activitiesAgg = getAggregateActivities(restAPI)
+  activitiesAgg = getAggregateActivities(restAPI, options.live)
 
-  overallReport(history, dateStart, dateEnd, activitiesAgg)
+  overallReport(
+      history,
+      dateStart,
+      dateEnd,
+      activitiesAgg,
+      options.day_trades_only)
   if options.orders:
-    ordersReport(history, dateStart, dateEnd, activitiesAgg, options.hide_day_enters)
+    ordersReport(
+        history,
+        dateStart,
+        dateEnd,
+        activitiesAgg,
+        options.hide_day_enters,
+         options.day_trades_only)
 
 
 if __name__ == '__main__':
