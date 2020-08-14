@@ -24,6 +24,10 @@ class Security:
     self.exitPrice = 0
     self.dayTrade = True
     self.position = None
+    self.dailySellLongPrice = 0
+    self.dailySellLongShares = 0
+    self.dailySellShortPrice = 0
+    self.dailySellShortShares = 0
 
 ## Get the appropriate color for a percent
 #  Cyan for large positive, green for positive, white for zero, yellow for negative, red for large negative
@@ -92,9 +96,12 @@ def overallReport(history, dateStart, dateEnd, activities, dayTradesOnly):
   dailyReturns = []
   wins = []
   losses = []
+  winsPercent = []
+  lossesPercent = []
   initialEquity = None
   endingEquity = 0
   deposits = 0
+  fees = []
   securities = {}
   for i in range(len(history.timestamp)):
     timestamp = est.localize(
@@ -103,25 +110,44 @@ def overallReport(history, dateStart, dateEnd, activities, dayTradesOnly):
     if timestamp.date() < dateStart:
       continue
 
+    for security in securities.values():
+      security.dailySellLongPrice = 0
+      security.dailySellLongShares = 0
+      security.dailySellShortPrice = 0
+      security.dailySellShortShares = 0
+
     dailyWins = []
     dailyLosses = []
     dailyDeposits = 0
+    dailyFee = 0
     if timestamp.date() in activities:
       for activity in activities[timestamp.date()]:
         if activity["type"] == "order":
+          if activity["symbol"] not in securities:
+            securities[activity["symbol"]] = Security(activity["symbol"])
+          security = securities[activity["symbol"]]
+
+          # Collect info for fees
+          if "profit" in activity:
+            # Combine shorts and longs
+            if activity["position"] == "long" or activity["position"] == "day L":
+              security.dailySellLongPrice += activity["price"]
+              security.dailySellLongShares += activity["shares"]
+            else:
+              security.dailySellShortPrice += activity["price"]
+              security.dailySellShortShares += activity["shares"]
+
           if dayTradesOnly and not activity["position"].startswith("day"):
             continue
           if "profit" in activity:
             if activity["profit"] > 0:
               wins.append(activity["profit"])
               dailyWins.append(activity["profit"])
-            else:
+              winsPercent.append(activity["profitPercent"])
+            else:  # Not losing money is a loss too
               losses.append(activity["profit"])
               dailyLosses.append(activity["profit"])
-
-            if activity["symbol"] not in securities:
-              securities[activity["symbol"]] = Security(activity["symbol"])
-            security = securities[activity["symbol"]]
+              lossesPercent.append(activity["profitPercent"])
 
             security.lifetimeEntryPrices.append(activity["price"])
             security.lifetimeProfits.append(activity["profit"])
@@ -135,6 +161,22 @@ def overallReport(history, dateStart, dateEnd, activities, dayTradesOnly):
         else:
           print("Unknown activity type", activity)
           sys.exit(1)
+      
+      for security in securities.values():
+        # SEC $22.10 per $1,000,00 rounded up to the nearest cent
+        rawFee = security.dailySellLongPrice * 22.10 / 1000000
+        dailyFee += np.ceil(rawFee * 100) / 100
+        rawFee = security.dailySellShortPrice * 22.10 / 1000000
+        dailyFee += np.ceil(rawFee * 100) / 100
+        
+        # FINRA  $0.000119 per share rounded up to the nearest cent, max $5.95
+        rawFee = security.dailySellLongShares * 0.000119
+        dailyFee += min(5.95, np.ceil(rawFee * 100) / 100)
+        rawFee = security.dailySellShortShares * 0.000119
+        dailyFee += min(5.95, np.ceil(rawFee * 100) / 100)
+
+      dailyFee = np.round(dailyFee, 2)
+      fees.append(dailyFee)
 
     prevEquity = history.equity[i - 1]
     if initialEquity is None:
@@ -144,8 +186,13 @@ def overallReport(history, dateStart, dateEnd, activities, dayTradesOnly):
     if i != len(history.timestamp) - 1:
       deposits += dailyDeposits
 
-    # Deposits go in after close but are counted in closing equity
+    # Deposits and fees go in after close but are counted in closing equity
     endingEquity = history.equity[i] - dailyDeposits
+    
+    # Fees go in after close and are not counted in the current day equity
+    # Historic days already have fees applied
+    if timestamp.date() == datetime.date.today():
+      endingEquity -= dailyFee
 
     profit = endingEquity - prevEquity
     profitPercent = (profit / prevEquity)
@@ -181,14 +228,22 @@ def overallReport(history, dateStart, dateEnd, activities, dayTradesOnly):
   print(f"╠════════════╧═══════════════╧═════════╤═════════════╧══════════════╧═════════╣")
   profit = endingEquity - (initialEquity + deposits)
 
-  print(f"║ Total profit:        ${colorProfit(profit)}{profit:12,.2f}{colorama.Fore.WHITE}   │ "
-        f"Beginning equity:    ${initialEquity:12,.2f}   ║")
+  print(f"║ Total profit:         ${colorProfit(profit)}{profit:12,.2f}{colorama.Fore.WHITE}  │ "
+        f"Beginning equity:     ${initialEquity:12,.2f}  ║")
 
   profitPercent = profit / (initialEquity + deposits)
-  print(f"║ Simple return:             {colorProfitPercent(profitPercent)}{profitPercent * 100:8.3f}%{colorama.Fore.WHITE} │ "
-        f"Deposits:            ${deposits:12,.2f}   ║")
+  print(f"║ Simple return:              {colorProfitPercent(profitPercent)}{profitPercent * 100:7.2f}%{colorama.Fore.WHITE} │ "
+        f"Capital changes:      ${deposits:12,.2f}  ║")
 
   averageReturns = np.mean(dailyReturns)
+  fees = np.sum(fees)
+  print(f"║ Average daily return:       {colorProfitPercent(averageReturns)}{averageReturns * 100:7.2f}%{colorama.Fore.WHITE} │ "
+        f"Total fees:           ${fees:12,.2f}  ║")
+
+  # Time weighted return is the product of the returns
+  # Throw in 1 and subtract 1 to make a profit percent into a close/open
+  # percent and vise versa
+  twr = np.product(np.array(dailyReturns) + 1) - 1
 
   # Sharpe ratio is average daily return / stddev(daily returns) * sqrt(252
   # number of trading days in a year)
@@ -203,13 +258,12 @@ def overallReport(history, dateStart, dateEnd, activities, dayTradesOnly):
     colorRatio = colorama.Fore.GREEN
   else:
     colorRatio = colorama.Fore.YELLOW
-  print(f"║ Average daily return:      {colorProfitPercent(averageReturns)}{averageReturns * 100:8.3f}%{colorama.Fore.WHITE} │ "
-        f"Sharpe ratio:                {colorRatio}{sharpeRatio:6.3f}{colorama.Fore.WHITE}  ║")
 
-  # Time weighted return is the product of the returns
-  # Throw in 1 and subtract 1 to make a profit percent into a close/open
-  # percent and vise versa
-  twr = np.product(np.array(dailyReturns) + 1) - 1
+  print(f"║ Time weighted return:       {colorProfitPercent(twr)}{twr * 100:7.2f}%{colorama.Fore.WHITE} │ "
+        f"Sharpe ratio:                {colorRatio}{sharpeRatio:6.2f}{colorama.Fore.WHITE}  ║")
+
+  countWins = len(wins)
+  countLosses = len(losses)
 
   # Sortino ratio is average daily return / stddev(negative only daily
   # returns) * sqrt(252 number of trading days in a year)
@@ -225,31 +279,42 @@ def overallReport(history, dateStart, dateEnd, activities, dayTradesOnly):
     colorRatio = colorama.Fore.GREEN
   else:
     colorRatio = colorama.Fore.YELLOW
-  print(f"║ Time weighted return:      {colorProfitPercent(twr)}{twr * 100:8.3f}%{colorama.Fore.WHITE} │ "
-        f"Sortino ratio:               {colorRatio}{sortinoRatio:6.3f}{colorama.Fore.WHITE}  ║")
-
-  countWins = len(wins)
-  countLosses = len(losses)
-  averageWin = np.average(wins) if countWins != 0 else 0
-  averageLoss = np.average(losses) if countLosses != 0 else 0
-  if dayTradesOnly:
-    print(f"║ Winning day trades:      {countWins:6}      │ "
-          f"Average day trade win:  ${averageWin:9,.2f}   ║")
-    print(f"║ Losing day trades:       {countLosses:6}      │ "
-          f"Average day trade loss: ${averageLoss:9,.2f}   ║")
-  else:
-    print(f"║ Winning trades:          {countWins:6}      │ "
-          f"Average trade win:      ${averageWin:9,.2f}   ║")
-    print(f"║ Losing trades:           {countLosses:6}      │ "
-          f"Average trade loss:     ${averageLoss:9,.2f}   ║")
 
   if (countWins + countLosses) == 0:
     accuracy = 0
   else:
     accuracy = countWins / (countWins + countLosses)
 
+  if dayTradesOnly:
+    print(f"║ Winning day trades:           {countWins:6} │ "
+          f"Sortino ratio:                {colorRatio}{sortinoRatio:5.2f}{colorama.Fore.WHITE}  ║")
+    print(f"║ Losing day trades:            {countLosses:6} │ "
+          f"Trade accuracy:             {colorAccuracy(accuracy)}{accuracy * 100:7.2f}%{colorama.Fore.WHITE} ║")
+  else:
+    print(f"║ Winning trades:               {countWins:6} │ "
+          f"Sortino ratio:                {colorRatio}{sortinoRatio:5.2f}{colorama.Fore.WHITE}  ║")
+    print(f"║ Losing trades:                {countLosses:6} │ "
+          f"Trade accuracy:             {colorAccuracy(accuracy)}{accuracy * 100:7.2f}%{colorama.Fore.WHITE} ║")
+
+  averageWin = np.average(wins) if countWins != 0 else 0
+  averageLoss = np.average(losses) if countLosses != 0 else 0
+
+  averageWinPercent = np.average(winsPercent) if countWins != 0 else 0
+  averageLossPercent = np.average(lossesPercent) if countLosses != 0 else 0
+  if dayTradesOnly:
+    print(f"║ Average day trade win %:    {colorProfitPercent(averageWinPercent)}{averageWinPercent * 100:7.2f}%{colorama.Fore.WHITE} │ "
+          f"Average day trade win:   ${averageWin:9,.2f}  ║")
+    print(f"║ Average day trade loss %:   {colorProfitPercent(averageLossPercent)}{averageLossPercent * 100:7.2f}%{colorama.Fore.WHITE} │ "
+          f"Average day trade loss:  ${averageLoss:9,.2f}  ║")
+  else:
+    print(f"║ Average trade win %:        {colorProfitPercent(averageWinPercent)}{averageWinPercent * 100:7.2f}%{colorama.Fore.WHITE} │ "
+          f"Average trade win:       ${averageWin:9,.2f}  ║")
+    print(f"║ Average trade loss %:       {colorProfitPercent(averageLossPercent)}{averageLossPercent * 100:7.2f}%{colorama.Fore.WHITE} │ "
+          f"Average trade loss:      ${averageLoss:9,.2f}  ║")
+
   if countWins == 0 or countLosses == 0:
     riskToReward = ""
+    riskToRewardPercent = ""
   else:
     rrRatio = np.abs(averageLoss / averageWin)
     if rrRatio < 1:
@@ -258,7 +323,15 @@ def overallReport(history, dateStart, dateEnd, activities, dayTradesOnly):
       riskToReward = f"{colorama.Fore.RED}{rrRatio:5.1f}:{1:<5}{colorama.Fore.WHITE}"
     else:
       riskToReward = f"{1:5}:{1:<5}"
-  print(f"║ Trade accuracy:            {colorAccuracy(accuracy)}{accuracy * 100:8.3f}%{colorama.Fore.WHITE} │ "
+
+    rrRatio = np.abs(averageLossPercent / averageWinPercent)
+    if rrRatio < 1:
+      riskToRewardPercent = f"{colorama.Fore.GREEN}{1:5}:{1/rrRatio:<5.1f}{colorama.Fore.WHITE}"
+    elif rrRatio > 1:
+      riskToRewardPercent = f"{colorama.Fore.RED}{rrRatio:5.1f}:{1:<5}{colorama.Fore.WHITE}"
+    else:
+      riskToRewardPercent = f"{1:5}:{1:<5}"
+  print(f"║ Risk-to-reward ratio %:   {riskToRewardPercent:11}│ "
         f"Risk-to-reward ratio:     {riskToReward:11}║")
 
   sortedSecurities = sorted(
@@ -311,7 +384,8 @@ def getBar(characters, reverse=False):
 #  @param activities dict {date: [list of activities]}
 #  @param hideDayEnters will not print enter orders for day positions
 #  @param dayTradesOnly will only show trade statistics for day trades
-def ordersReport(history, dateStart, dateEnd, activities, hideDayEnters, dayTradesOnly):
+def ordersReport(history, dateStart, dateEnd, activities,
+                 hideDayEnters, dayTradesOnly):
   print(f"╔═══════╤════════╤═════════════╤═════════════╤═════════╤══════════════════════╗")
   print(f"║ Time  │ Symbol │ Position    │ Order Price │ Shares  │ Profit               ║")
 
@@ -527,7 +601,8 @@ def getAggregateActivities(restAPI, live):
       qty = float(activity.qty)
       price = float(activity.price) * qty
 
-      if (security.position == "long" and activity.side == "buy") or (security.position == "short" and activity.side == "sell_short"):
+      if (security.position == "long" and activity.side == "buy") or (
+        security.position == "short" and activity.side == "sell_short"):
         # Entering / increasing position
         contribution = False
         for data in day:
@@ -597,7 +672,7 @@ def getAggregateActivities(restAPI, live):
             "complete": False,
           }
           day.append(data)
-          
+
         security.entryPrice -= entryPrice
         security.shares -= qty
 
@@ -621,7 +696,7 @@ def getAggregateActivities(restAPI, live):
           security.entryPrice = 0
           security.exitPrice = 0
           security.dayTrade = True
-      
+
     elif activity.activity_type == "CSR":
       # Cash receipt
       data = {
@@ -751,7 +826,7 @@ def main():
         dateEnd,
         activitiesAgg,
         options.hide_day_enters,
-         options.day_trades_only)
+        options.day_trades_only)
 
 
 if __name__ == '__main__':
