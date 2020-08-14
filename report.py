@@ -19,10 +19,9 @@ class Security:
     self.lifetimeEntryPrices = []
     self.lifetimeProfits = []
     self.lifetimeShares = []
-    self.buyShares = 0
-    self.sellShares = 0
-    self.buyPrice = 0
-    self.sellPrice = 0
+    self.shares = 0
+    self.entryPrice = 0
+    self.exitPrice = 0
     self.dayTrade = True
     self.position = None
 
@@ -75,7 +74,7 @@ def getActivityTimestamp(activity):
     return est.localize(datetime.datetime.fromisoformat(
       activity.date + "T20:01:00"))
   print("Unknown activity type", activity)
-  sys.exit(0)
+  sys.exit(1)
 
 ## Generate and print an overall report over the date window
 #  Daily information includes ending equity, daily change, wins/losses, and risk to reward
@@ -135,7 +134,7 @@ def overallReport(history, dateStart, dateEnd, activities, dayTradesOnly):
           dailyDeposits += activity["amount"]
         else:
           print("Unknown activity type", activity)
-          sys.exit()
+          sys.exit(1)
 
     prevEquity = history.equity[i - 1]
     if initialEquity is None:
@@ -341,7 +340,7 @@ def ordersReport(history, dateStart, dateEnd, activities, hideDayEnters, dayTrad
           price = activity["price"]
           shares = activity["shares"]
           profit = ""
-          if entranceExit == "Exit":
+          if entranceExit == "Exit" or entranceExit == "Decr.":
             profit = activity["profit"]
 
             weekday = timestamp.isoweekday()
@@ -502,7 +501,7 @@ def getAggregateActivities(restAPI, live):
     if timestamp.date() != prevDate:
       # Any held securities are not day trades
       for security in securities.values():
-        if security.buyShares != 0 or security.sellShares != 0:
+        if security.shares != 0:
           security.dayTrade = False
       day.sort(key=lambda data: data["timestamp"])
       days[prevDate] = day
@@ -517,7 +516,7 @@ def getAggregateActivities(restAPI, live):
       security = securities[activity.symbol]
 
       # If entering a position, note if long or short
-      if security.sellShares == 0 and security.buyShares == 0:
+      if security.shares == 0:
         if activity.side == "buy":
           security.position = "long"
         elif activity.side == "sell_short":
@@ -527,69 +526,9 @@ def getAggregateActivities(restAPI, live):
 
       qty = float(activity.qty)
       price = float(activity.price) * qty
-      if activity.side == "buy":
-        security.buyShares += qty
-        security.buyPrice += price
-      elif activity.side == "sell" or activity.side == "sell_short":
-        security.sellShares += qty
-        security.sellPrice += price
-      else:
-        print("Activity is neither buy, sell, nor sell_short", activity)
 
-      # Exiting position, sold same as bought
-      if security.sellShares == security.buyShares:
-        if security.dayTrade:
-          if security.position == "long":
-            security.position = "day L"
-          else:
-            security.position = "day S"
-          for data in day:
-            if data["type"] != "order" or data["symbol"] != activity.symbol:
-              continue
-            if data["complete"]:
-              continue
-            data["complete"] = True
-            data["position"] = security.position
-
-        if activity.side == "sell":
-          price = security.sellPrice
-          enterPrice = security.buyPrice
-          shares = security.buyShares
-        elif activity.side == "buy":
-          price = security.buyPrice
-          enterPrice = security.sellPrice
-          shares = -security.sellShares
-        else:
-          print("Exiting position is neither buy nor sell", activity)
-
-        profit = security.sellPrice - security.buyPrice
-        data = {
-          "type": "order",
-          "symbol": activity.symbol,
-          "timestamp": timestamp,
-          "entranceExit": "Exit",
-          "position": security.position,
-          "price": price,
-          "shares": shares,
-          "profit": profit,
-          "profitPercent": profit / enterPrice,
-          "complete": True,
-        }
-        day.append(data)
-
-        # Reset for next position entry
-        security.sellPrice = 0
-        security.sellShares = 0
-        security.buyPrice = 0
-        security.buyShares = 0
-        security.dayTrade = True
-      elif (security.position == "long" and activity.side == "buy") or (security.position == "short" and activity.side == "sell_short"):
+      if (security.position == "long" and activity.side == "buy") or (security.position == "short" and activity.side == "sell_short"):
         # Entering / increasing position
-        if activity.side == "buy":
-          shares = qty
-        else:
-          shares = -qty
-
         contribution = False
         for data in day:
           if data["type"] != "order" or data["symbol"] != activity.symbol:
@@ -598,10 +537,8 @@ def getAggregateActivities(restAPI, live):
             continue
           if data["entranceExit"] == "Enter" or data["entranceExit"] == "Incr.":
             data["timestamp"] = timestamp
-            if not security.dayTrade:
-              data["entranceExit"] = "Incr."
             data["price"] += price
-            data["shares"] += shares
+            data["shares"] += qty
             contribution = True
 
         if not contribution:
@@ -609,16 +546,82 @@ def getAggregateActivities(restAPI, live):
             "type": "order",
             "symbol": activity.symbol,
             "timestamp": timestamp,
-            "entranceExit": "Enter",
+            "entranceExit": "Enter" if security.shares == 0 else "Incr.",
             "position": security.position,
             "price": price,
-            "shares": shares,
+            "shares": qty,
             "complete": False,
           }
           day.append(data)
+
+        security.shares += qty
+        security.entryPrice += price
       else:
-        # Decreasing position
-        pass
+        # Exiting / decreasing position
+        entryPrice = security.entryPrice * qty / security.shares
+
+        profit = price - entryPrice
+        if activity.side == "buy":
+          profit = -profit
+        profitPercent = profit / entryPrice
+
+        contribution = False
+        for data in day:
+          if data["type"] != "order" or data["symbol"] != activity.symbol:
+            continue
+          if data["complete"]:
+            continue
+          if data["entranceExit"] == "Exit" or data["entranceExit"] == "Decr.":
+            data["timestamp"] = timestamp
+            data["entranceExit"] = "Exit" if security.shares == qty else "Decr."
+
+            data["price"] += price
+            data["profit"] += profit
+            data["entryPrice"] += entryPrice
+            data["profitPercent"] = data["profit"] / data["entryPrice"]
+            data["shares"] += qty
+            contribution = True
+
+        if not contribution:
+          data = {
+            "type": "order",
+            "symbol": activity.symbol,
+            "timestamp": timestamp,
+            "entranceExit": "Exit" if security.shares == qty else "Decr.",
+            "position": security.position,
+            "price": price,
+            "entryPrice": entryPrice,
+            "shares": qty,
+            "profit": profit,
+            "profitPercent": profitPercent,
+            "complete": False,
+          }
+          day.append(data)
+          
+        security.entryPrice -= entryPrice
+        security.shares -= qty
+
+        # Exiting position, sold same as bought
+        if security.shares == 0:
+          if security.dayTrade:
+            if security.position == "long" or security.position == "day L":
+              security.position = "day L"
+            else:
+              security.position = "day S"
+          for data in day:
+            if data["type"] != "order" or data["symbol"] != activity.symbol:
+              continue
+            if data["complete"]:
+              continue
+            data["complete"] = True
+            data["position"] = security.position
+
+          # Reset for next position entry
+          security.shares = 0
+          security.entryPrice = 0
+          security.exitPrice = 0
+          security.dayTrade = True
+      
     elif activity.activity_type == "CSR":
       # Cash receipt
       data = {
@@ -630,7 +633,7 @@ def getAggregateActivities(restAPI, live):
 
     else:
       print("Unknown activity type", activity)
-      sys.exit(0)
+      sys.exit(1)
 
   # Add last day
   day.sort(key=lambda data: data["timestamp"])
@@ -731,7 +734,7 @@ def main():
       timeframe="1D")
   if datetime.datetime.fromtimestamp(history.timestamp[-1]).date() < dateStart:
     print("Selected date(s) have no account history")
-    sys.exit(0)
+    sys.exit(1)
 
   activitiesAgg = getAggregateActivities(restAPI, options.live)
 
