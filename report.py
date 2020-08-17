@@ -28,6 +28,7 @@ class Security:
     self.dailySellLongShares = 0
     self.dailySellShortPrice = 0
     self.dailySellShortShares = 0
+    self.enterTime = None
 
 ## Get the appropriate color for a percent
 #  Cyan for large positive, green for positive, white for zero, yellow for negative, red for large negative
@@ -391,6 +392,25 @@ def ordersReport(history, dateStart, dateEnd, activities,
 
   weekdays = {}
   timeOfDays = {}
+  holdTimes = {
+    datetime.timedelta(minutes=1): [],
+    datetime.timedelta(minutes=3): [],
+    datetime.timedelta(minutes=5): [],
+    datetime.timedelta(minutes=10): [],
+    datetime.timedelta(minutes=20): [],
+    datetime.timedelta(minutes=40): [],
+    datetime.timedelta(hours=1): [],
+    datetime.timedelta(hours=2): [],
+    datetime.timedelta(hours=4): [],
+    datetime.timedelta(hours=8): [],
+  }
+  if not dayTradesOnly:
+    holdTimes[datetime.timedelta(days=1)] = []
+    holdTimes[datetime.timedelta(days=2)] = []
+    holdTimes[datetime.timedelta(days=4)] = []
+    holdTimes[datetime.timedelta(days=10)] = []
+    holdTimes[datetime.timedelta(days=30)] = []
+  holdTimes["overflow"] = []
   timeWindow = 15
 
   for i in range(len(history.timestamp)):
@@ -430,6 +450,12 @@ def ordersReport(history, dateStart, dateEnd, activities,
               timeOfDays[timeOfDay].append(profit)
             else:
               timeOfDays[timeOfDay] = [profit]
+
+            holdTime = timestamp - activity["enterTime"]
+            for timeDelta in holdTimes:
+              if timeDelta == "Overflow" or holdTime <= timeDelta:
+                holdTimes[timeDelta].append(profit)
+                break
 
             profitPercent = activity["profitPercent"]
             profit = f"${colorProfit(profit)}{profit:10,.2f} {colorProfitPercent(profitPercent)}{profitPercent * 100:7.2f}%{colorama.Fore.WHITE}"
@@ -518,10 +544,48 @@ def ordersReport(history, dateStart, dateEnd, activities,
           f"${profit:10,.2f} {profitBars:20} │"
           f" ${loss:10,.2f} {lossBars:20} ║ ")
 
-  # for weekday, profit in weekdays.items():
-  #   print(weekday, profit)
-  # for timeOfDay, profit in timeOfDays.items():
-  #   print(timeOfDay, profit)
+  print(f"╠═══════╪══════════════════════════════════╪══════════════════════════════════╣")
+  print(f"║ THeld │ Profits                          │ Losses                           ║")
+  durations = []
+  maxMovement = 0
+  for timeDelta, orders in holdTimes.items():
+    profit = 0
+    loss = 0
+    for order in orders:
+      if order > 0:
+        profit += order
+      else:
+        loss += order
+    maxMovement = max(maxMovement, profit, -loss)
+
+    duration = {
+      "duration": timeDelta,
+      "profit": profit,
+      "loss": loss
+    }
+    durations.append(duration)
+
+  for duration in durations:
+    timeDelta = duration["duration"]
+    profit = duration["profit"]
+    loss = duration["loss"]
+    profitBars = getBar(profit / maxMovement * 20)
+    lossBars = getBar(-loss / maxMovement * 20)
+
+    if timeDelta == "overflow":
+      if profit == 0 and loss == 0:
+        break
+      timeDelta = ">Long"
+    elif timeDelta < datetime.timedelta(days=1):
+      hours = np.floor(timeDelta.seconds / 3600)
+      minutes = np.floor((timeDelta.seconds / 60) % 60)
+      timeDelta = f"<{hours:01.0f}:{minutes:02.0f}"
+    else:
+      timeDelta = f"<{timeDelta.days:3}D"
+
+    print(f"║ {timeDelta:5} │ "
+          f"${profit:10,.2f} {profitBars:20} │"
+          f" ${loss:10,.2f} {lossBars:20} ║ ")
   print(f"╚═══════╧══════════════════════════════════╧══════════════════════════════════╝")
 
 ## Get an aggregated list of activities (orders, deposits, etc.)
@@ -604,6 +668,15 @@ def getAggregateActivities(restAPI, live):
       if (security.position == "long" and activity.side == "buy") or (
         security.position == "short" and activity.side == "sell_short"):
         # Entering / increasing position
+        if security.shares == 0:
+          security.enterTime = timestamp
+        else:
+          # Incr.
+          # Average enter time based on shares
+          totalShares = security.shares + qty
+          deltaTime = (timestamp - security.enterTime) * qty / totalShares
+          security.enterTime += deltaTime
+
         contribution = False
         for data in day:
           if data["type"] != "order" or data["symbol"] != activity.symbol:
@@ -611,7 +684,9 @@ def getAggregateActivities(restAPI, live):
           if data["complete"]:
             continue
           if data["entranceExit"] == "Enter" or data["entranceExit"] == "Incr.":
-            data["timestamp"] = timestamp
+            totalShares = data["shares"] + qty
+            deltaTime = (timestamp - data["timestamp"]) * qty / totalShares
+            data["timestamp"] += deltaTime
             data["price"] += price
             data["shares"] += qty
             contribution = True
@@ -647,7 +722,10 @@ def getAggregateActivities(restAPI, live):
           if data["complete"]:
             continue
           if data["entranceExit"] == "Exit" or data["entranceExit"] == "Decr.":
-            data["timestamp"] = timestamp
+            totalShares = data["shares"] + qty
+            deltaTime = (timestamp - data["timestamp"]) * qty / totalShares
+            data["timestamp"] += deltaTime
+            data["enterTime"] = security.enterTime
             data["entranceExit"] = "Exit" if security.shares == qty else "Decr."
 
             data["price"] += price
@@ -662,6 +740,7 @@ def getAggregateActivities(restAPI, live):
             "type": "order",
             "symbol": activity.symbol,
             "timestamp": timestamp,
+            "enterTime": security.enterTime,
             "entranceExit": "Exit" if security.shares == qty else "Decr.",
             "position": security.position,
             "price": price,
